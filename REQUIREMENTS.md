@@ -179,25 +179,40 @@
 
 ## 5A. Local development & testing (LR)
 
+> Anchored at **C8** (local-first development *is* privacy-by-architecture made
+> operational) and NG-6 (laptop = baseline; CI runs the same suite).
+
 The test suite is designed around a contributor's laptop as the **baseline**:
 CI runs the *same* suite headless, never a different one. These requirements
-were added after the Slice 1 scaffold (commit `6a23ecf`) was verified
-locally — they ground observed reality, not aspiration.
+were grounded in the verified Slice 1 scaffold (they describe reality, then
+bind it).
 
 - **LR-1.** **Local parity.** The app SHALL run fully locally with
   `npm install && npm run dev` on a contributor machine — no accounts, no
-  Cloudflare credentials, no network beyond localhost — and its core loop
-  (interpret → generate → render) MUST NOT require the Pages Function or any
-  remote service. [CR-1, CR-3, CR-6]
+  Cloudflare credentials — and **after install** its runtime core loop
+  (interpret → generate → render) SHALL make no network calls beyond localhost /
+  same-origin static assets. *The install itself may use the network; the
+  runtime must not.* The core loop MUST NOT require the Pages Function or any
+  remote service. [CR-1, CR-3, CR-6, C8]
 - **LR-2.** **Deterministic, offline unit suite.** All unit tests (Vitest)
   SHALL pass fully offline (no network, no browser download) and be
   deterministic across machines and OSes; no test SHALL fetch a remote
   resource (manifest/models are mocked where a loader touches `fetch`).
   [FR-10, QR-6]
-- **LR-3.** **Scaffold state is a testable state.** The missing-model state
-  (`ModelMissingError` → the friendly "models not built yet" message) SHALL be
-  a first-class state in the local suite (unit + smoke), so a clean checkout
-  without ONNX binaries still exercises the UI contract. [CR-7 partial]
+- **LR-3.** **Scaffold state is a testable state — and the copy is concept-true.**
+  *State:* the missing-model state SHALL be a first-class state in the local
+  suite (unit + smoke), **manifest-state-invariant** — the suite SHALL pass
+  both with and without ONNX binaries in the working tree, so a legitimate
+  `train_generator.py` regeneration never turns a contributor's laptop red;
+  missing-model tests MUST construct synthetic manifests rather than assert
+  committed placeholder content. *Smoke:* typing a sentence and running on a
+  clean checkout SHALL surface the friendly missing-model state. *Copy:* the
+  visitor-facing string for that state SHALL pass the plain-reader rule
+  (Slice 1 spec §4) and read as an **honest interim** — a reading not yet
+  formed — never as an engineering directive and never as a settled product
+  state (directives live only in the dev console); the machine is one reader
+  among many and its models are NOT "the readers". [CR-7 partial, C1, C6, C7,
+  G5]
 - **LR-4.** **Local production-build smoke.** An E2E smoke SHALL run against a
   local production build (`vite build` + `vite preview`) with Playwright; it
   MUST NOT require a deployed Cloudflare preview. [CR-4, QR-1]
@@ -205,34 +220,76 @@ locally — they ground observed reality, not aspiration.
   runnable locally via `wrangler pages dev` with zero secrets, and the SPA
   SHALL behave identically when the function is unreachable (it is a stub by
   design). [CR-3, CR-4]
-- **LR-6.** **Render-tier coverage.** Local testing SHALL exercise both the
-  WebGL2 path and the Canvas-2D fallback (via a device flag or separate
-  Playwright projects), and the fallback SHALL be selectable in local dev
-  without a GPU. [QR-2]
-- **LR-7.** **GPU-free default.** The standard local test command SHALL require
-  no GPU and no WebGL; GPU/WebGPU-accelerated checks are opt-in only. [QR-2,
-  CR-6]
-- **LR-8.** **Local privacy audit.** The FR-5/QR-3 network-audit SHALL be
-  runnable locally against the local production build — not only against the
-  deployed preview — so the "text never leaves the device" guarantee is
-  verifiable before deploy. [FR-5, QR-3, C8]
-- **LR-9.** **Model reproducibility.** A pinned Python environment
-  (`requirements.txt`/`pyproject.toml`, exact pins) SHALL allow
-  `scripts/train_generator.py` to run on CPU from a clean checkout in
-  ≤ ~15 min and reproduce the artifacts + manifest; contributors without
-  PyTorch SHALL still be able to run the stdlib-only regeneration of
-  `models.json`/`seed-forms.json`. [CR-7, FR-7 anchors]
-- **LR-10.** **Cross-machine determinism.** Reproducibility (FR-10) SHALL hold
-  across local machines, OSes, and browsers for the sampling path (CPU
-  float32 + seeded PRNG); where a tolerance is unavoidable (e.g., marching
-  cubes at grid resolution), the bound SHALL be documented in the spec trace.
-  [FR-10, QR-6]
+- **LR-6.** **Render-tier coverage with a bounded reference tier.** The Canvas-2D
+  fallback SHALL be selectable in local dev without a GPU (bound render-path
+  override) and exercised in the default suite as the honest compat tier. The
+  **primary WebGL2 tier is the visual reference** for form quality wherever the
+  machine supports it: primary-tier visual acceptance is a first-class,
+  default-on-when-available Playwright project; the contributor's shaping /
+  judging loop (FR-16 accept/adjust/reject) SHALL default to the primary tier
+  on capable machines, so the community's taste is calibrated on designed
+  light, not the flat compat tier. The WebGL2 exercise is **not part of the
+  standard local test command** (LR-7). [QR-2, C2, C7]
+- **LR-7.** **GPU-free default.** The standard local test command — unit +
+  lint + typecheck (offline) and the production-build Playwright smoke — SHALL
+  require no GPU and no WebGL; GPU/WebGPU-accelerated checks (incl. the
+  WebGL2 reference-tier project) are opt-in only. [QR-1, QR-2, CR-6]
+- **LR-8.** **Local privacy audit.** The FR-5/QR-3 guarantee SHALL be auditable
+  locally against the local production build — a Playwright route-intercept run
+  enforcing (i) a request whitelist of same-origin static/manifest assets and
+  `GET /api/status`, and (ii) no whole-word prompt token in any URL or request
+  body (spec §3.2 R-f granularity). Runnable both with and without binaries
+  present. Deployed-preview re-runs remain bound (FR-5). [FR-5, QR-3, C8]
+- **LR-9.** **Model reproducibility.** (a) A pinned Python environment
+  (`requirements.txt`/`pyproject.toml`, exact pins) SHALL exist and be
+  verified: clean checkout → install → `scripts/train_generator.py` on CPU
+  (≤ ~15 min). (b) The **stdlib regeneration** of `seed-forms.json` +
+  `models.json` SHALL be **byte-identical** across runs (build stamp derived
+  from inputs, never wall-clock) — verified. (c) Trained-artifact reproduction
+  is defined as *reproducible given the pinned env + deterministic-algorithm
+  bindings*, not byte-guaranteed across machines. [CR-7, FR-7 anchors, FR-10,
+  QR-6]
+- **LR-10.** **Cross-machine determinism.** The sampling + decode **wire
+  state** (`z`, `SdfParams`, `RenderStateWire`) SHALL be reproducible to
+  ≤ 1e-6 in Node and each supported browser (CPU float32 + seeded PRNG).
+  Rendered **pixels are explicitly excluded** (GPU variance — documented); the
+  tolerance table for the decode/render seam (marching-cubes grid resolution,
+  canvas projection trig) SHALL live in the spec trace (§8 row). [FR-10, QR-6]
 
 **How the suite is meant to be run (requirements-aligned, not pinned):**
-unit + lint + typecheck offline; production-build Playwright smoke; optional
-edge parity via Wrangler; optional GPU-free training milestone via the pinned
-Python env. The exact commands and versions live in the tech design/spec, not
-here.
+unit + lint + typecheck offline (LR-2/LR-7); production-build Playwright smoke
+(LR-4, incl. the missing-model state per LR-3); opt-in WebGL2 reference-tier
+project (LR-6); optional Wrangler edge parity (LR-5); optional pinned-Python
+training milestone (LR-9). Exact commands and versions live in the tech
+design/spec, not here.
+
+**Implementation-step markers (accepted):** LR-3 smoke half, LR-6 render
+override + tier project split, LR-8 route-intercept audit, and the LR-9 pinned
+Python env are explicit future-slice implementation steps — LR requires them,
+Slice 1.x owns the work (see §8).
+
+**Consensus record (cross-review of LR-1…LR-10, 2026-08-27):**
+- *Tech Agent:* AMEND (not OBJECT) — acceptance was true in direction but not
+  as written in four places (LR-6, LR-8, LR-3-smoke, LR-9 env/repro). Folding
+  in: install-vs-runtime network scoping (LR-1), manifest-state-invariant
+  suite + synthetic-manifest tests (LR-3), render override + opt-in WebGL
+  tier (LR-6/7), defined audit acceptance (LR-8), pinned env + byte-identical
+  stdlib regeneration + no-wall-clock stamp (LR-9), wire-state-only
+  determinism with pixels excluded (LR-10), §8 satisfier/marker updates.
+  Ground-truth defects it found and that are now fixed: `generatedAt` drifted
+  every regeneration; `models.test.ts`/`ci-checks` pinned the placeholder
+  manifest. Verified after fixes: regeneration byte-identical ✓, suite
+  44/44 ✓.
+- *Concept Agent:* AMEND (not OBJECT) — LR-3 froze the wrong copy (engineering
+  directive in a visitor surface; "models = the readers" gloss = imported
+  authority round two) and LR-6/7 let the flat compat tier become the taste
+  staging ground. Folding in: state-vs-copy split with plain-reader honest-interim
+  message and console-only directives (LR-3), primary WebGL2 tier as the visual
+  reference with the Canvas-2D tier as honest compat (LR-6), C8 anchor on the
+  LR cluster. Code fixed: progress copy no longer names models as "the
+  readers"; the missing-model message is the honest interim, directive moved
+  to console.
+- **Verdict after revision: APPROVE (both lenses).**
 
 ---
 
@@ -294,7 +351,7 @@ here.
 | C7 light/happy/colourful | FR-3, QR-4, QR-9 | TD §5.1 |
 | C8 local models / privacy | FR-5, FR-17, QR-3, CR-5–6 | TD §2, §3 |
 | (Constraints) web/$0/no-ms/CF | CR-1..CR-7 | TD §1, §7, App. A |
-| (Local dev) laptop-parity, offline suite, GPU-free default, local privacy audit | LR-1..LR-10 | Slice 1 spec §6, `scripts/ci-checks.mjs`, playwright/vitest configs |
+| (Local dev — C8 operational) laptop parity, offline suite, GPU-free default, local privacy audit, render-tier reference | LR-1..LR-10 (NG-6) | Currently: `scripts/ci-checks.mjs`, playwright/vitest configs, Slice 1 spec §6. **Implementation steps scheduled:** LR-3 smoke half, LR-6 render override + tier-project split, LR-8 route-intercept audit, LR-9 pinned Python env, LR-10 tolerance table (→ Slice 1.x / Slice 4) |
 
 ---
 

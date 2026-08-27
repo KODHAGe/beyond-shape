@@ -34,11 +34,11 @@ Sampling side-notes owned HERE (spec §3.3):
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import random
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -135,6 +135,22 @@ def _hash_seed(text: str) -> int:
         h = ((h << 13) ^ h) >> 0 & 0xFFFFFFFF
         h = (h * 0x5BD1E995) & 0xFFFFFFFF
     return h
+
+
+def content_stamp() -> str:
+    """Content-derived, wall-clock-free build stamp (LR-9b).
+
+    Derived from the seed corpus + config + channel names so that repeated
+    stdlib regeneration is byte-identical — `generatedAt` is a build identity,
+    not a timestamp of the run.
+    """
+    digest = hashlib.sha256()
+    digest.update(json.dumps({
+        "seeds": SEED_TEXTS,
+        "config": CONFIG,
+        "channels": SENSORY_CHANNELS,
+    }, sort_keys=True).encode("utf-8"))
+    return "content-" + digest.hexdigest()[:16]
 
 
 def placeholder_sdf_params(text: str, rng: random.Random) -> Dict[str, Any]:
@@ -281,10 +297,9 @@ def write_seed_forms(out_dir: Path, corpus: List[Dict[str, Any]]) -> None:
     print(f"[corpus] wrote seed-forms.json ({len(corpus)} seeds)")
 
 
-def write_manifest(out_dir: Path) -> Dict[str, Any]:
+def write_manifest(out_dir: Path, stamp: str) -> Dict[str, Any]:
     models_dir = out_dir / "models"
     models_dir.mkdir(parents=True, exist_ok=True)
-    now = datetime.now(timezone.utc).isoformat()
     artifacts = {
         "embedder": artifact_entry(models_dir / "embedder-all-minilm-l6-v2-int8.onnx",
                                    dim=CONFIG["embed_dim"], max_tokens=CONFIG["max_tokens"]),
@@ -300,13 +315,13 @@ def write_manifest(out_dir: Path) -> Dict[str, Any]:
     manifest: Dict[str, Any] = {
         "version": "0.1.0-generated",
         "slice": 1,
-        "generatedAt": now,
+        "generatedAt": stamp,
         "totalBytes": total,
         "artifacts": artifacts,
         "sensoryChannels": [{"name": ch} for ch in SENSORY_CHANNELS],
         "trainingSource": {
             "seedForms": len(SEED_TEXTS),
-            "generatedAt": now,
+            "generatedAt": stamp,
             "anchors": ANCHOR_LATENTS,          # FR-7 one-hot primitive anchors
             "canonicalD0Latent": CANONICAL_D0_LATENT,
             "config": CONFIG,
@@ -347,6 +362,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--lr", type=float, default=CONFIG["lr"])
     parser.add_argument("--no-export", action="store_true",
                         help="skip the ONNX-export contract printout")
+    parser.add_argument("--stamp", type=str, default=None,
+                        help="override the content-stable build stamp (default: "
+                             "derived from seeds+config so regeneration is byte-identical)")
     args = parser.parse_args(argv)
 
     corpus = build_seed_corpus()
@@ -354,7 +372,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     write_seed_forms(out_dir, corpus)
-    manifest = write_manifest(out_dir)
+    stamp = args.stamp or content_stamp()
+    manifest = write_manifest(out_dir, stamp)
 
     run_training(args, corpus)
     if not args.no_export:

@@ -13,7 +13,7 @@ const STAGE_LABELS: { [k in StageId]: string } = {
   placeholder: 'a quiet shape before the words',
   manifest: 'finding the models',
   renderer: 'setting up the light',
-  models: 'waking the readers (models)',
+  models: 'waking the machines',
   run: 'reading your sentence',
 };
 
