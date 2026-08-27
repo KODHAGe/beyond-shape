@@ -1,0 +1,212 @@
+/* Slice 1 minimal styling — register stays light/happy/colourful. */
+
+:root {
+  color-scheme: light;
+  --ink: #3a3a42;
+  --paper: #fffaf3;
+  --pastel: #ffe8f0;
+  --accent: #ff9ec7;
+  --muted: #877f8c;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  background: linear-gradient(180deg, #fff6ec 0%, #ffeef4 60%, #f2ecff 100%);
+  color: var(--ink);
+}
+
+.bs-root {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 24px 20px 64px;
+  display: grid;
+  gap: 18px;
+}
+
+.bs-header h1 {
+  margin: 0;
+  font-size: 2.4rem;
+  letter-spacing: -0.02em;
+}
+
+.bs-tagline {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+.bs-placeholder {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.bs-form {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 16px;
+  border: 1px solid rgba(255, 158, 199, 0.35);
+}
+
+.bs-form textarea {
+  width: 100%;
+  font: inherit;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #e6d8e6;
+  resize: vertical;
+  background: #fffdf9;
+}
+
+.bs-form label {
+  display: grid;
+  gap: 6px;
+  font-size: 0.95rem;
+}
+
+.bs-drift-value {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.bs-form button {
+  font: inherit;
+  padding: 10px 18px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.bs-form button:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+.bs-viewport {
+  min-height: 420px;
+  border-radius: 18px;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 10px 40px rgba(255, 158, 199, 0.18);
+}
+
+.bs-viewport canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.bs-progress {
+  display: grid;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.bs-progress-row[data-status='done'] {
+  color: #4a8f6a;
+}
+
+.bs-progress-row[data-status='error'] {
+  color: #b3404a;
+}
+
+.bs-progress-row[data-status='active'] {
+  color: var(--ink);
+}
+
+.bs-progress-dot {
+  display: inline-block;
+  width: 1.2em;
+}
+
+.bs-progress-note[data-kind='error'] {
+  color: #b3404a;
+}
+
+.bs-alternates h3 {
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.bs-alternates-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.bs-alternate-cell {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 12px;
+  background: #fff9ef;
+  border: 1px solid #f0dfea;
+}
+
+.bs-marginalia {
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid #f0dfea;
+}
+
+.bs-marginalia-title {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.bs-marginalia-sub {
+  margin: 2px 0 10px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.bs-marginalia-crowd {
+  margin: 0 0 8px;
+}
+
+.bs-marginalia-constellation {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.bs-marginalia-item.nearest {
+  font-weight: 700;
+}
+
+.bs-marginalia-dist {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.bs-marginalia-note {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fff1f6;
+  border-left: 3px solid var(--accent);
+}
+
+.bs-marginalia-empty {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.bs-status {
+  color: var(--muted);
+  font-size: 0.85rem;
+  min-height: 1.2em;
+  overflow-wrap: anywhere;
+}

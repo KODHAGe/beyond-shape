@@ -1,0 +1,7 @@
+# Slice 1 — Cloudflare Pages (spec §6). Free tier, no secrets, $0 recurring (CR-2).
+name = "beyond-shape"
+compatibility_date = "2025-01-01"
+pages_build_output_dir = "dist"
+
+# Edge: thin Pages Function functions/api/status.ts only (CR-3/CR-6).
+# No D1 / KV / R2 in this slice — schema note only (spec §5).

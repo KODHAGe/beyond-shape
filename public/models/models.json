@@ -1,0 +1,67 @@
+{
+  "version": "0.0.1-scaffold",
+  "slice": 1,
+  "generatedAt": "2026-08-27T00:00:00.000Z",
+  "totalBytes": 0,
+  "artifacts": {
+    "embedder": {
+      "file": null,
+      "sha256": "",
+      "sizeBytes": 0,
+      "dim": 384,
+      "maxTokens": 256
+    },
+    "tokenizer": {
+      "file": null,
+      "sha256": "",
+      "sizeBytes": 0,
+      "maxTokens": 256
+    },
+    "sensory": {
+      "file": null,
+      "sha256": "",
+      "sizeBytes": 0,
+      "dim": 16
+    },
+    "denoiser": {
+      "file": null,
+      "sha256": "",
+      "sizeBytes": 0,
+      "dim": 64,
+      "steps": 25
+    },
+    "decoder": {
+      "file": null,
+      "sha256": "",
+      "sizeBytes": 0,
+      "dim": 64
+    },
+    "aligner": null
+  },
+  "sensoryChannels": [
+    { "name": "light" },
+    { "name": "warmth" },
+    { "name": "motion" },
+    { "name": "weight" },
+    { "name": "texture" },
+    { "name": "soft" },
+    { "name": "hard" },
+    { "name": "metal" },
+    { "name": "fluid" },
+    { "name": "time-of-day" },
+    { "name": "scale" },
+    { "name": "moisture" },
+    { "name": "rhythm" },
+    { "name": "colour-temperature" },
+    { "name": "colour-saturation" },
+    { "name": "air" }
+  ],
+  "trainingSource": null,
+  "licenses": [
+    {
+      "name": "all-MiniLM-L6-v2",
+      "license": "Apache-2.0",
+      "note": "attribution bundled when artifacts ship"
+    }
+  ]
+}

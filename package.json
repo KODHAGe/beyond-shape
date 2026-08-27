@@ -1,0 +1,38 @@
+{
+  "name": "beyond-shape",
+  "private": true,
+  "version": "0.0.1-scaffold",
+  "type": "module",
+  "description": "Beyond Shape — sign-as-living-distribution. Slice 1: on-device interpretation → generation → render.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "e2e": "playwright test",
+    "e2e:install": "playwright install chromium",
+    "checks": "node scripts/ci-checks.mjs"
+  },
+  "dependencies": {
+    "onnxruntime-web": "^1.20.0",
+    "three": "^0.169.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.0.0",
+    "@playwright/test": "^1.49.1",
+    "@types/node": "^22.10.1",
+    "@types/three": "^0.185.4",
+    "eslint": "^9.17.0",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.18.0",
+    "vite": "^6.0.5",
+    "vitest": "^3.0.0",
+    "wrangler": "^3.99.0"
+  }
+}

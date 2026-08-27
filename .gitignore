@@ -29,6 +29,11 @@ coverage/
 # (models.json manifest IS committed; the .onnx binaries are not)
 public/models/*.onnx
 
+# Cloudflare / Playwright
+.wrangler/
+test-results/
+playwright-report/
+
 # Logs
 *.log
 npm-debug.log*

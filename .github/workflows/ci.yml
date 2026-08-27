@@ -1,0 +1,48 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      # Lockfile is not committed in the scaffold pass (created on first install).
+      - run: npm ci || npm install
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: node scripts/ci-checks.mjs
+      - run: npm run build
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+      - name: E2E smoke
+        run: npx playwright test
+
+  # CR-4: Pages deploy on every merged main. Activate by setting the
+  # CLOUDFLARE_API_TOKEN secret in the repo. Until then this job's deploy
+  # step is skipped so CI stays green for the scaffold (place-holder secret).
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci || npm install
+      - run: npm run build
+      - name: Deploy to Cloudflare Pages
+        if: env.CLOUDFLARE_API_TOKEN != ''
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx wrangler pages deploy dist --project-name beyond-shape
