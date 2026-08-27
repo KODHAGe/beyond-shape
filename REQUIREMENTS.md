@@ -51,6 +51,9 @@
 - **NG4.** No paid-access wall: the core experience is free and web-based.
 - **NG5.** Not a training-data mill; the corpus is a collective artwork, not a
   dataset to be sold.
+- **NG6.** Not CI-only testing. The suite is designed to run on a contributor's
+  laptop as the baseline; CI runs the *same* suite headless, never a stricter
+  or different one (LR-1…LR-10).
 
 ---
 
@@ -174,6 +177,65 @@
 
 ---
 
+## 5A. Local development & testing (LR)
+
+The test suite is designed around a contributor's laptop as the **baseline**:
+CI runs the *same* suite headless, never a different one. These requirements
+were added after the Slice 1 scaffold (commit `6a23ecf`) was verified
+locally — they ground observed reality, not aspiration.
+
+- **LR-1.** **Local parity.** The app SHALL run fully locally with
+  `npm install && npm run dev` on a contributor machine — no accounts, no
+  Cloudflare credentials, no network beyond localhost — and its core loop
+  (interpret → generate → render) MUST NOT require the Pages Function or any
+  remote service. [CR-1, CR-3, CR-6]
+- **LR-2.** **Deterministic, offline unit suite.** All unit tests (Vitest)
+  SHALL pass fully offline (no network, no browser download) and be
+  deterministic across machines and OSes; no test SHALL fetch a remote
+  resource (manifest/models are mocked where a loader touches `fetch`).
+  [FR-10, QR-6]
+- **LR-3.** **Scaffold state is a testable state.** The missing-model state
+  (`ModelMissingError` → the friendly "models not built yet" message) SHALL be
+  a first-class state in the local suite (unit + smoke), so a clean checkout
+  without ONNX binaries still exercises the UI contract. [CR-7 partial]
+- **LR-4.** **Local production-build smoke.** An E2E smoke SHALL run against a
+  local production build (`vite build` + `vite preview`) with Playwright; it
+  MUST NOT require a deployed Cloudflare preview. [CR-4, QR-1]
+- **LR-5.** **Edge-function local parity.** The Pages Function SHALL be
+  runnable locally via `wrangler pages dev` with zero secrets, and the SPA
+  SHALL behave identically when the function is unreachable (it is a stub by
+  design). [CR-3, CR-4]
+- **LR-6.** **Render-tier coverage.** Local testing SHALL exercise both the
+  WebGL2 path and the Canvas-2D fallback (via a device flag or separate
+  Playwright projects), and the fallback SHALL be selectable in local dev
+  without a GPU. [QR-2]
+- **LR-7.** **GPU-free default.** The standard local test command SHALL require
+  no GPU and no WebGL; GPU/WebGPU-accelerated checks are opt-in only. [QR-2,
+  CR-6]
+- **LR-8.** **Local privacy audit.** The FR-5/QR-3 network-audit SHALL be
+  runnable locally against the local production build — not only against the
+  deployed preview — so the "text never leaves the device" guarantee is
+  verifiable before deploy. [FR-5, QR-3, C8]
+- **LR-9.** **Model reproducibility.** A pinned Python environment
+  (`requirements.txt`/`pyproject.toml`, exact pins) SHALL allow
+  `scripts/train_generator.py` to run on CPU from a clean checkout in
+  ≤ ~15 min and reproduce the artifacts + manifest; contributors without
+  PyTorch SHALL still be able to run the stdlib-only regeneration of
+  `models.json`/`seed-forms.json`. [CR-7, FR-7 anchors]
+- **LR-10.** **Cross-machine determinism.** Reproducibility (FR-10) SHALL hold
+  across local machines, OSes, and browsers for the sampling path (CPU
+  float32 + seeded PRNG); where a tolerance is unavoidable (e.g., marching
+  cubes at grid resolution), the bound SHALL be documented in the spec trace.
+  [FR-10, QR-6]
+
+**How the suite is meant to be run (requirements-aligned, not pinned):**
+unit + lint + typecheck offline; production-build Playwright smoke; optional
+edge parity via Wrangler; optional GPU-free training milestone via the pinned
+Python env. The exact commands and versions live in the tech design/spec, not
+here.
+
+---
+
 ## 6. Constraint requirements
 
 - **CR-1.** **Web is the output format.** The primary experience runs in the
@@ -232,6 +294,7 @@
 | C7 light/happy/colourful | FR-3, QR-4, QR-9 | TD §5.1 |
 | C8 local models / privacy | FR-5, FR-17, QR-3, CR-5–6 | TD §2, §3 |
 | (Constraints) web/$0/no-ms/CF | CR-1..CR-7 | TD §1, §7, App. A |
+| (Local dev) laptop-parity, offline suite, GPU-free default, local privacy audit | LR-1..LR-10 | Slice 1 spec §6, `scripts/ci-checks.mjs`, playwright/vitest configs |
 
 ---
 
