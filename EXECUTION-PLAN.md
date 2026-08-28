@@ -1,9 +1,10 @@
 # Beyond Shape — Execution Plan (proposed sequence)
 
-> **Status:** proposal, awaiting approval. Once approved, the orchestrator
-> (me) executes phases in dependency order, using the agent pipeline in
-> `AGENTS.md` — dev subagents build to the approved specs; the Concept /
-> Requirements / Tech lenses review at gates.
+> **Status:** IN FLIGHT — Phase A complete (Gate A closed, commit `6900b4e`); Phase B (real models) in progress (Python toolchain installing). Gates are reported as they close; human decisions (D-A…D-F) are flagged inline.
+>
+> Once approved, the orchestrator (me) executes phases in dependency order,
+> using the agent pipeline in `AGENTS.md` — dev subagents build to the approved
+> specs; the Concept / Requirements / Tech lenses review at gates.
 >
 > **Constraints carried into every phase:** Cloudflare-first (CR-4) · ≈$0
 > operating cost (CR-2) · browser monolith, no microservices (CR-3) ·

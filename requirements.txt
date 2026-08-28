@@ -1,7 +1,8 @@
 # Beyond Shape — Slice 1 model toolchain (LR-9 local reproducibility)
-# Pinned exact versions as of 2026-08-28 (PyPI). CPU-only default; a GPU
-# accelerates the weekly drift fine-tune (Slice 2) but is never required to
-# reproduce the stdlib regeneration of seed-forms.json + models.json.
+# Pinned exact versions as of 2026-08-28 (PyPI). Recommended Python ≥ 3.12
+# (these pins are not supported on old 3.9/3.10 toolchains). CPU-only default;
+# a GPU accelerates the weekly drift fine-tune (Slice 2) but is never required
+# to reproduce the stdlib regeneration of seed-forms.json + models.json.
 #
 # Install (CPU torch):
 #   python -m venv .venv
