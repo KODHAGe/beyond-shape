@@ -119,6 +119,7 @@ export async function mountApp(root: HTMLElement): Promise<AppHandle> {
   progress.setStage('placeholder', 'done');
   progress.setStage('renderer', 'active');
   const renderer: AppRenderer = await createRenderer(viewport);
+  viewport.dataset['renderMode'] = renderer.kind; // LR-6: tier observable in tests
   progress.setStage('renderer', 'done');
 
   const store = new RunStore();

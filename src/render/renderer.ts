@@ -13,6 +13,28 @@ import { SeededRng } from '../core/seededRng';
 
 export type RenderKind = 'webgl' | 'canvas2d';
 
+/** Pure render-mode resolution (LR-6, testable without a GPU). */
+export function resolveRenderMode(
+  explicit: string | null | undefined,
+  webgl2: boolean,
+): RenderKind {
+  if (explicit === 'webgl' || explicit === 'canvas2d') return explicit;
+  return webgl2 ? 'webgl' : 'canvas2d';
+}
+
+/**
+ * Runtime render-mode override (LR-6): URL `?render=webgl|canvas2d` first,
+ * then the `VITE_BS_RENDER_MODE` env at build/dev time. Auto-detect otherwise.
+ */
+export function renderModeOverride(): string | null {
+  if (typeof window !== 'undefined') {
+    const q = new URLSearchParams(window.location.search).get('render');
+    if (q === 'webgl' || q === 'canvas2d') return q;
+  }
+  const env = import.meta.env?.VITE_BS_RENDER_MODE as string | undefined;
+  return env === 'webgl' || env === 'canvas2d' ? env : null;
+}
+
 export interface AppRenderer {
   kind: RenderKind;
   /** Show a run's primary form. */
@@ -37,9 +59,14 @@ export function detectWebGL2(): boolean {
 
 /** QR-2: complete a run without WebGL2 by painting a shaded 2D projection. */
 export async function createRenderer(container: HTMLElement): Promise<AppRenderer> {
-  if (detectWebGL2()) {
-    const { createWebglRenderer } = await import('./scene');
-    return createWebglRenderer(container);
+  const mode = resolveRenderMode(renderModeOverride(), detectWebGL2());
+  if (mode === 'webgl') {
+    try {
+      const { createWebglRenderer } = await import('./scene');
+      return await createWebglRenderer(container);
+    } catch (err) {
+      console.warn('WebGL2 renderer failed to start — falling back to canvas-2D:', err);
+    }
   }
   return createCanvas2dRenderer(container);
 }

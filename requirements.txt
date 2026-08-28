@@ -1,0 +1,26 @@
+# Beyond Shape — Slice 1 model toolchain (LR-9 local reproducibility)
+# Pinned exact versions as of 2026-08-28 (PyPI). CPU-only default; a GPU
+# accelerates the weekly drift fine-tune (Slice 2) but is never required to
+# reproduce the stdlib regeneration of seed-forms.json + models.json.
+#
+# Install (CPU torch):
+#   python -m venv .venv
+#   . .venv/bin/activate
+#   pip install -r requirements.txt
+#
+# Then:
+#   python scripts/train_generator.py            # stdlib regen (byte-identical)
+#   python scripts/train_generator.py --train    # DDPM training + ONNX export
+#
+# NOTE: torch on the default PyPI index resolves CUDA-capable wheels on some
+# platforms; for a strictly-CPU install use
+#   pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu
+# then install the rest from this file.
+
+numpy==2.5.2
+onnx==1.22.0
+onnxruntime==1.29.0
+torch==2.13.0
+transformers==5.16.1
+sentence-transformers==6.0.0
+optimum==2.3.0
