@@ -13,6 +13,7 @@
 import type { ModelManifest } from '../types';
 import { ModelMissingError, SENSORY_CHANNEL_COUNT } from '../types';
 import { LazySession, requireModelFile, sensoryChannels } from './models';
+import { ortSessionOptions } from './ortSession';
 import * as ort from 'onnxruntime-web';
 
 export class SensoryHead {
@@ -27,9 +28,7 @@ export class SensoryHead {
   private createSession(): Promise<ort.InferenceSession> {
     // requireModelFile throws ModelMissingError when the artifact is absent.
     const file = requireModelFile(this.manifestRef.artifacts.sensory, 'sensory');
-    return ort.InferenceSession.create(file, {
-      executionProviders: ['webgpu', 'wasm'],
-    });
+    return ort.InferenceSession.create(file, ortSessionOptions());
   }
 
   /** Channel names as data — used to label the v0 vector visibly-provisional. */

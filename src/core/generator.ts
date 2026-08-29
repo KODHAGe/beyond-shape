@@ -21,6 +21,7 @@
 import type { ModelManifest } from '../types';
 import { ModelMissingError } from '../types';
 import { LazySession, requireModelFile } from './models';
+import { ortSessionOptions } from './ortSession';
 import { createSeededRng, SeededRng } from './seededRng';
 import * as ort from 'onnxruntime-web';
 
@@ -206,9 +207,7 @@ export class OnnxDenoiser implements Denoiser {
 
   private createSession(): Promise<ort.InferenceSession> {
     const file = requireModelFile(this.manifestRef.artifacts.denoiser, 'denoiser');
-    return ort.InferenceSession.create(file, {
-      executionProviders: ['webgpu', 'wasm'],
-    });
+    return ort.InferenceSession.create(file, ortSessionOptions());
   }
 
   async predictNoise(xT: Float32Array, t: number, c: Float32Array): Promise<Float32Array> {

@@ -29,6 +29,10 @@ coverage/
 # (models.json manifest IS committed; the .onnx binaries are not)
 public/models/*.onnx
 
+# onnxruntime-web assets — copied from node_modules by scripts/copy-ort-wasm.mjs
+public/ort-wasm/*.wasm
+public/ort-wasm/*.mjs
+
 # Cloudflare / Playwright
 .wrangler/
 test-results/

@@ -13,6 +13,7 @@ import type { ModelManifest } from '../types';
 import { ModelMissingError } from '../types';
 import { LazySession, requireModelFile } from './models';
 import { BertTokenizer } from './tokenizer';
+import { ortSessionOptions } from './ortSession';
 import * as ort from 'onnxruntime-web';
 
 export const EMBED_DIM = 384;
@@ -32,9 +33,7 @@ export class Embedder {
   private createSession(): Promise<ort.InferenceSession> {
     // requireModelFile throws ModelMissingError when the artifact is absent.
     const file = requireModelFile(this.manifestRef.artifacts.embedder, 'embedder');
-    return ort.InferenceSession.create(file, {
-      executionProviders: ['webgpu', 'wasm'],
-    });
+    return ort.InferenceSession.create(file, ortSessionOptions());
   }
 
   private maxTokens(): number {

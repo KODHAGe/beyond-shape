@@ -19,6 +19,7 @@
 import type { ModelManifest, SdfParams } from '../types';
 import { ModelMissingError } from '../types';
 import { LazySession, requireModelFile } from './models';
+import { ortSessionOptions } from './ortSession';
 import { clamp, softBias, softmax, wrap01, wrapTwoPi } from '../lib/math';
 import * as ort from 'onnxruntime-web';
 
@@ -116,9 +117,7 @@ export class Decoder {
 
   private createSession(): Promise<ort.InferenceSession> {
     const file = requireModelFile(this.manifestRef.artifacts.decoder, 'decoder');
-    return ort.InferenceSession.create(file, {
-      executionProviders: ['webgpu', 'wasm'],
-    });
+    return ort.InferenceSession.create(file, ortSessionOptions());
   }
 
   async decode(z: Float32Array): Promise<SdfParams> {

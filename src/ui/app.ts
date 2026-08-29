@@ -212,11 +212,18 @@ export async function mountApp(root: HTMLElement): Promise<AppHandle> {
     } catch (err) {
       if (err instanceof ModelMissingError) {
         progress.setStage('models', 'error');
-        // Visitor-facing copy = plain-reader honest interim (concept AMEND-1);
-        // the engineering directive lives only in the dev console.
-        progress.message('the machines are still sleeping; this sentence will find a form once the models are built.', 'error');
-        console.warn('models not built yet — run scripts/train_generator.py');
-        line('even so — a crowd is forming, one reading at a time.');
+        if (/not available/.test(err.message)) {
+          // Truly absent binaries → honest interim (LR-3 / AMEND-1); the
+          // directive lives only in the dev console.
+          progress.message('the machines are still sleeping; this sentence will find a form once the models are built.', 'error');
+          console.warn('models not built yet — run scripts/train_generator.py');
+          line('even so — a crowd is forming, one reading at a time.');
+        } else {
+          // A real load/run failure — show the cause, never hide it behind
+          // the sleeping copy.
+          progress.message(`something wasn't ready: ${err.message}`, 'error');
+          console.warn('run failed', err);
+        }
       } else if (err instanceof Error) {
         progress.message(`something wasn't ready: ${err.message}`, 'error');
         console.warn('run failed', err);

@@ -44,6 +44,7 @@ export default tseslint.config(
       'test-results/**',
       'playwright-report/**',
       'public/models/**',
+      'public/ort-wasm/**',
       '.venv/**',
       '.wrangler/**',
       // 2018 reference clones — kept on disk, versioned at github.com/KODHAGe/*,
