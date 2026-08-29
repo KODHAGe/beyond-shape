@@ -34,6 +34,9 @@ public/models/*.onnx
 test-results/
 playwright-report/
 
+# Python toolchain (LR-9) — pinned in requirements.txt
+.venv/
+
 # Logs
 *.log
 npm-debug.log*

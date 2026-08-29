@@ -44,6 +44,8 @@ export default tseslint.config(
       'test-results/**',
       'playwright-report/**',
       'public/models/**',
+      '.venv/**',
+      '.wrangler/**',
       // 2018 reference clones — kept on disk, versioned at github.com/KODHAGe/*,
       // NOT part of this repo's build; eslint must never traverse them.
       'shape-constructor/**',

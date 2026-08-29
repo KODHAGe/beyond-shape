@@ -12,37 +12,13 @@
 import type { ModelManifest } from '../types';
 import { ModelMissingError } from '../types';
 import { LazySession, requireModelFile } from './models';
+import { BertTokenizer } from './tokenizer';
 import * as ort from 'onnxruntime-web';
 
 export const EMBED_DIM = 384;
 
-/** Deterministic non-crypto hash (FNV-1a 32-bit) — placeholder token id source. */
-function fnv1a(text: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < text.length; i += 1) {
-    h ^= text.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return h;
-}
-
-// All-MiniLM-L6-v2 is a WordPiece tokenizer over a 30522-token vocab, max
-// position 256. The committed scaffold has no vocab artifact, so this is a
-// whitespace + a-z/0-9 split that fingerprints unknown words into the vocab
-// range. TODO(model): replace with the real WordPiece vocab shipped with the
-// embedder artifact — this placeholder exists ONLY so the pipeline is typed
-// and unit-testable before binaries land (spec §4: skeleton where bound).
-function tokenizePlaceholder(text: string, maxTokens: number): number[] {
-  const lower = text.toLowerCase();
-  const words = lower.match(/[a-z0-9]+/g) ?? [];
-  const ids: number[] = [];
-  for (const word of words) {
-    if (ids.length >= maxTokens) break;
-    ids.push(fnv1a(word) % 30522);
-  }
-  if (ids.length === 0) ids.push(100); // [UNK]
-  return ids;
-}
+/** Lazy in-memory WordPiece vocab (same-origin fetch, exempted by ci-checks). */
+let tokenizerPromise: Promise<BertTokenizer> | null = null;
 
 export class Embedder {
   private readonly session: LazySession<ort.InferenceSession>;
@@ -76,11 +52,15 @@ export class Embedder {
    */
   async embed(text: string): Promise<Float32Array> {
     const maxTokens = this.maxTokens();
-    const ids = tokenizePlaceholder(text, maxTokens);
-    if (ids.length > maxTokens) {
-      console.warn(`embedder: truncated ${ids.length} tokens to ${maxTokens}`);
+    if (!tokenizerPromise) {
+      tokenizerPromise = BertTokenizer.fromFile(
+        requireModelFile(this.manifestRef.artifacts.tokenizer, 'tokenizer'),
+      );
     }
-    const seqLen = Math.min(ids.length, maxTokens);
+    const tokenizer = await tokenizerPromise;
+    const { ids, truncated } = tokenizer.tokenize(text, maxTokens);
+    if (truncated) console.warn(`embedder: truncated to ${maxTokens} tokens`);
+    const seqLen = ids.length;
 
     const session = await this.session.get().catch((err: unknown) => {
       if (err instanceof ModelMissingError) throw err;
@@ -90,17 +70,19 @@ export class Embedder {
       );
     });
 
-    const inputIds = new ort.Tensor('int64', BigInt64Array.from(ids.slice(0, seqLen), BigInt), [
+    const inputIds = new ort.Tensor('int64', BigInt64Array.from(ids, BigInt), [1, seqLen]);
+    const attentionMask = new ort.Tensor('int64', BigInt64Array.from({ length: seqLen }, () => 1n), [
       1,
       seqLen,
     ]);
-    const attentionMask = new ort.Tensor('int64', BigInt64Array.from({ length: seqLen }, () => 1n), [
+    const tokenTypeIds = new ort.Tensor('int64', BigInt64Array.from({ length: seqLen }, () => 0n), [
       1,
       seqLen,
     ]);
     const feeds: Record<string, ort.Tensor> = {
       input_ids: inputIds,
       attention_mask: attentionMask,
+      token_type_ids: tokenTypeIds,
     };
     const output = await session.run(feeds);
     const hiddenTensor = output[session.outputNames[0]!] as ort.Tensor;

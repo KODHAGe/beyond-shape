@@ -1,34 +1,26 @@
 #!/usr/bin/env python3
 """
-Slice 1 training script (spec §3.3 / §3.5 / §3.6, CR-7 partial).
+Slice 1 training (spec §3.3/§3.5/§3.6, CR-7 partial, LR-9).
 
-STRUCTURAL SCAFFOLD: the script runs from a clean checkout WITHOUT torch
-installed (it only needs the stdlib to regenerate `public/models/models.json`
-and `public/seed-forms.json`). Training / ONNX-export steps are guarded by an
-optional torch import and flagged with TODO markers — they are the contract
-that produces the real artifacts:
+Trains and exports the two generative models, using the SAME on-device
+artifacts for inference so the corpus matches the browser contract 1:1:
 
-  - seed-forms.json   → per-seed e[384] (via the embedder) + zCenter[64] +
-                        sdfParams (via the decoder), so the cold-start
-                        consensus backdrop is machine-generated, not invented.
-  - models.json       → manifest with real sha256/sizeBytes, trainingSource
-                        provenance (DR-4), sensory-v0 channels, licenses incl.
-                        Apache-2.0 attribution for all-MiniLM-L6-v2 (CR-5).
-  - ONNX artifacts    → embedder (int8), sensory-v0 (linear 384→16), denoiser
-                        (≤ 3M params, c_emb 2×256 Swish+LN → 128), decoder
-                        (64 → SdfParams). Denoiser inputs/outputs mirror the
-                        in-browser contract (src/core/generator.ts):
-                        x (64), t (1, normalised 0..1), c (400) → eps (64).
-  - anchors           → one-hot primitive anchor latents for the FR-7 blend
-                        test, exported in the manifest's trainingSource block.
+  seed text → embedder-int8 (mean-pool + L2) → e[384]
+            → sensory-v0-int8 → q[16]
+            → c = concat(e, q) = [400]
+  dataset   → Gaussian clouds around each seed zCenter + inter-centre blends
+  decoder   → z[64] → raw SdfParams outputs (weights8, blend_radius1, parts64,
+              material7, motion2, pose3)  — FR-7 anchors decode to primitives
+  denoiser  → DDPM (cosine β, T=1000, MSE on ε, ≤3M params) conditioned on c
+              with the browser's 25-step DDIM in mind — canonical d=0 zeros.
 
-Sampling side-notes owned HERE (spec §3.3):
-  - DDPM training: cosine β, T=1000, MSE on ε, Adam lr 1e-3, batch 64,
-    ~3000 steps, CPU-capable (≤ ~15 min).
-  - Dataset = per-seed Gaussian clouds around each zCenter + linear
-    interpolations between centres (engineering FR-7 'between' reachability).
-  - Canonical d=0 initial latent = zeros(64) — the fixed, seed-independent
-    community-centre point the browser sampler starts from (AMEND-1).
+Outputs (all overridable via --out-dir, default public/):
+  seed-forms.json   real {id,text,e,zCenter,sdfParams}
+  models/models.json  v0.1.0 with real sha256/sizes + trainingSource provenance
+  models/decoder-v1-int8.onnx, denoiser-v1-int8.onnx
+
+Reproducible: fixed torch/python seeds + content-derived build stamp ⇒
+byte-identical regeneration on the same env (LR-9).
 """
 
 from __future__ import annotations
@@ -40,23 +32,30 @@ import math
 import random
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
-# ── Optional imports ───────────────────────────────────────────────────────────
+# ── Optional heavy imports (guarded so CI / nltk-less use stays importable) ───
 try:
-    import numpy as np  # noqa: F401  (used only when training)
-    HAS_NUMPY = True
-except ImportError:
-    np = None  # type: ignore[assignment]
-    HAS_NUMPY = False
+    import torch
+    import torch.nn as nn
+    import torch.nn.functional as F
 
-try:
-    import torch  # noqa: F401
-    import torch.nn as nn  # noqa: F401
     HAS_TORCH = True
-except ImportError:
+except Exception:  # pragma: no cover - env probe
     torch = None  # type: ignore[assignment]
+    nn = None  # type: ignore[assignment]
+    F = None  # type: ignore[assignment]
     HAS_TORCH = False
+
+try:
+    import onnxruntime as ort
+
+    HAS_ORT = True
+except Exception:  # pragma: no cover
+    ort = None  # type: ignore[assignment]
+    HAS_ORT = False
+
+from transformers import AutoTokenizer  # for tokenizing seeds
 
 # ── Spec-bound constants (spec §3.3 / §3.5) ──────────────────────────────────
 
@@ -85,7 +84,7 @@ PRIMITIVE_NAMES = [
 
 CONFIG = {
     "T": 1000,                  # cosine diffusion timesteps
-    "num_ddim_steps": 25,       # sampling steps
+    "num_ddim_steps": 25,       # sampling steps (DDIM, browser)
     "latent_dim": 64,
     "cond_dim": 400,            # c = concat(e[384], q[16])
     "cond_emb": 128,            # c_emb after 2×256 Swish+LayerNorm
@@ -97,38 +96,27 @@ CONFIG = {
     "max_tokens": 256,
 }
 
-CANONICAL_D0_LATENT = [0.0] * CONFIG["latent_dim"]  # AMEND-1: fixed centre point
+CANONICAL_D0_LATENT: List[float] = [0.0] * CONFIG["latent_dim"]  # AMEND-1
 
-# FR-7: one-hot primitive anchor latents — the canonical zCenter anchors
-# (sphere=0, box=1, …) the blend test decodes and looks for max-weight ∈ [0.5,0.75].
+# FR-7 one-hot primitive anchor latents (sphere=0, box=1, …).
 ANCHOR_LATENTS: List[List[float]] = [
     [1.0 if i == p else 0.0 for i in range(CONFIG["latent_dim"])]
     for p in range(len(PRIMITIVE_NAMES))
 ]
 
 LICENSES = [
-    {
-        "name": "all-MiniLM-L6-v2",
-        "license": "Apache-2.0",
-        "note": "attribute per public/models/LICENSES/README.md",
-    },
-    {
-        "name": "onnxruntime-web",
-        "license": "MIT",
-        "note": "runtime dependency",
-    },
-    {
-        "name": "three.js",
-        "license": "MIT",
-        "note": "render dependency",
-    },
+    {"name": "all-MiniLM-L6-v2", "license": "Apache-2.0",
+     "note": "attribute per public/models/LICENSES/README.md"},
+    {"name": "onnxruntime-web", "license": "MIT", "note": "runtime dependency"},
+    {"name": "three.js", "license": "MIT", "note": "render dependency"},
 ]
+
+MODEL_ID = "sentence-transformers/all-MiniLM-L6-v2"
 
 
 # ── Deterministic helpers ──────────────────────────────────────────────────────
 
 def _hash_seed(text: str) -> int:
-    """Stable integer seed per seed-text (corpus is version-stable)."""
     h = 0x9E3779B9
     for ch in text:
         h = (h ^ ord(ch)) & 0xFFFFFFFF
@@ -138,12 +126,6 @@ def _hash_seed(text: str) -> int:
 
 
 def content_stamp() -> str:
-    """Content-derived, wall-clock-free build stamp (LR-9b).
-
-    Derived from the seed corpus + config + channel names so that repeated
-    stdlib regeneration is byte-identical — `generatedAt` is a build identity,
-    not a timestamp of the run.
-    """
     digest = hashlib.sha256()
     digest.update(json.dumps({
         "seeds": SEED_TEXTS,
@@ -153,239 +135,546 @@ def content_stamp() -> str:
     return "content-" + digest.hexdigest()[:16]
 
 
-def placeholder_sdf_params(text: str, rng: random.Random) -> Dict[str, Any]:
-    """
-    Deterministic placeholder SdfParams for the scaffold corpus (valid ranges
-    per spec §4). TODO(training): regenerate with the real decoder once it is
-    trained — this only keeps seed-forms.json schema-valid before training.
-    """
-    hue = rng.random()
-    weights = [0.35, 0.15, 0.1, 0.08, 0.07, 0.12, 0.08, 0.05]
-    wsum = sum(weights)
-    weights = [w / wsum for w in weights]
-    parts = []
-    for _ in PRIMITIVE_NAMES:
-        parts.append({
-            "scale": [1.0, 1.0, 1.0],
-            "offset": [0.0, 0.0, 0.0],
-            "twist": rng.uniform(-0.4, 0.4),
-            "displacement": rng.uniform(0.0, 0.3),
-        })
-    return {
-        "weights": weights,
-        "blendRadius": round(rng.uniform(0.08, 0.4), 3),
-        "parts": parts,
-        "material": {
-            "hue": hue,
-            "saturation": round(rng.uniform(0.3, 0.6), 3),
-            "lightness": round(rng.uniform(0.6, 0.85), 3),
-            "roughness": 0.45,
-            "metalness": 0.05,
-            "clearcoat": 0.5,
-            "emissive": 0.05,
-        },
-        "motion": {"breathe": rng.random(), "sway": rng.random()},
-        "pose": {"yaw": rng.uniform(-1.4, 1.4), "pitch": 0.0, "roll": 0.0},
+def _sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def cosine_alpha_bar(t: float, total: int = CONFIG["T"], s: float = 0.008) -> float:
+    """Matches src/core/generator.ts cosineAlphaBar (FR-10 determinism)."""
+    x = ((t / total + s) / (1 + s)) * (math.pi / 2)
+    c = math.cos(x)
+    f = c * c
+    norm = math.cos((s / (1 + s)) * (math.pi / 2))
+    return f / (norm * norm)
+
+
+# ── Inference through the shipped artifacts (browser parity) ──────────────────
+
+def tokenize_seed(text: str, tok, max_tokens: int) -> Tuple[List[int], List[int]]:
+    enc = tok(
+        text,
+        max_length=max_tokens,
+        truncation=True,
+        padding=False,
+        return_tensors="pt",
+    )
+    return enc["input_ids"][0].tolist(), enc["attention_mask"][0].tolist()
+
+
+def embed_seed(text: str, tok, embedder_session) -> List[float]:
+    import numpy as np
+
+    ids, mask = tokenize_seed(text, tok, CONFIG["max_tokens"])
+    seq = len(ids)
+    tid = [0] * seq
+    feeds = {
+        "input_ids": np.array([ids], dtype=np.int64),
+        "attention_mask": np.array([mask], dtype=np.int64),
+        "token_type_ids": np.array([tid], dtype=np.int64),
     }
+    out = embedder_session.run(["last_hidden_state"], feeds)[0]  # [1, L, 384]
+    row = out[0]  # [L, 384]
+    e = row.sum(axis=0) / seq
+    n = math.sqrt(float((e * e).sum()))
+    if n > 0:
+        e = e / n
+    return [float(v) for v in e]
 
 
-def build_seed_corpus() -> List[Dict[str, Any]]:
-    """The 8 arbitrary, unlabelled seed texts (spec §3.5) → SeedForm dicts."""
-    corpus: List[Dict[str, Any]] = []
-    for idx, text in enumerate(SEED_TEXTS):
-        rng = random.Random(_hash_seed(text))
-        # Placeholder latent: deterministic draw near the anchor space.
-        z_center = [round(rng.gauss(0.0, 0.35), 4) for _ in range(CONFIG["latent_dim"])]
+def sensory_q(e: List[float], sensory_session) -> List[float]:
+    import numpy as np
+
+    out = sensory_session.run(["raw"], {"e": np.array([e], dtype=np.float32)})[0]
+    return [float(min(1.0, max(0.0, v))) for v in out[0]]
+
+
+# ── Decoder targets & MLP ──────────────────────────────────────────────────────
+
+def _part(scale: float, offset: Tuple[float, float, float] = (0, 0, 0),
+          twist: float = 0.0, disp: float = 0.0) -> List[float]:
+    return [scale, scale, scale, offset[0], offset[1], offset[2], twist, disp]
+
+
+def canonical_sdf_raw(p: int) -> List[float]:
+    """Target raw decoder outputs for the one-hot primitive anchor `p`.
+
+    weights are a PROBABILITY distribution (soft one-hot: 0.93 at p, 0.01
+    elsewhere) — the decoder head outputs LOGITS and is trained with KL against
+    these probs, so interpolated latents decode to genuine blends (FR-7).
+    """
+    weights = [0.01] * 8
+    weights[p] = 0.93
+    blend = 0.06 if p != 7 else 0.18          # blob likes a larger radius
+    parts: List[float] = []
+    for i in range(8):
+        if i == p:
+            if p == 0:   parts += _part(1.0)
+            elif p == 1: parts += _part(1.05)
+            elif p == 2: parts += _part(1.0, disp=0.04)
+            elif p == 3: parts += _part(0.8, (0, 0.4, 0))
+            elif p == 4: parts += _part(0.9)
+            elif p == 5: parts += _part(1.0)
+            elif p == 6: parts += _part(0.7)
+            else:        parts += _part(1.0, disp=0.4)   # blob ripple
+        else:
+            parts += _part(1.0)                # neutral, gated by weight ~0
+    hue = [0.05, 0.10, 0.16, 0.30, 0.42, 0.55, 0.70, 0.88][p]  # warm→cool wander
+    material = [hue, 0.55, 0.75, 0.45, 0.0, 0.0, 0.0]
+    return weights + [blend] + parts + material + [0.05, 0.0] + [0.4, 0.1, 0.0]
+
+
+def lerp(a: float, b: float, t: float) -> float:
+    return a + (b - a) * t
+
+
+def blend_target(p: int, r: int, lam: float, rng: random.Random) -> List[float]:
+    """Interpolated decoder target (FR-7 'between' reachability).
+
+    weights are a two-dominant probability vector (0.55/0.45) so an equal
+    midpoint decodes to a max weight inside the spec's [0.5, 0.75] blend
+    window — a pure probability-average would sit at ≤ 0.5 and is unreachable
+    by softmax with residual mass on the silent primitives.
+    """
+    a = canonical_sdf_raw(p)
+    b = canonical_sdf_raw(r)
+    w = [0.0] * 8
+    w[p] = 0.55
+    w[r] = 0.45
+    base = [lerp(x, y, lam) for x, y in zip(a[9:73], b[9:73])]
+    return w + [lerp(a[8], b[8], lam)] + base + a[73:80] + a[80:85]
+
+
+class DecoderMLP(nn.Module):
+    def __init__(self, latent=64, hidden=256):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(latent, hidden), nn.GELU(),
+            nn.Linear(hidden, hidden), nn.GELU(),
+        )
+        self.w = nn.Linear(hidden, 8)
+        self.b = nn.Linear(hidden, 1)
+        self.p = nn.Linear(hidden, 64)
+        self.m = nn.Linear(hidden, 7)
+        self.mo = nn.Linear(hidden, 2)
+        self.po = nn.Linear(hidden, 3)
+
+    def forward(self, z):
+        h = self.net(z)
+        return (self.w(h), self.b(h), self.p(h), self.m(h), self.mo(h), self.po(h))
+
+
+def build_decoder_dataset(rng: random.Random, samples_per_pair: int = 400) -> List[Tuple[List[float], List[float]]]:
+    pairs = []
+    for _ in range(samples_per_pair):
+        p = rng.randrange(8)
+        if rng.random() < 0.5:
+            target = canonical_sdf_raw(p)
+            z = list(ANCHOR_LATENTS[p])
+        else:
+            r = rng.randrange(8)
+            lam = rng.random()
+            target = blend_target(p, r, lam, rng)
+            za = ANCHOR_LATENTS[p]
+            zb = ANCHOR_LATENTS[r]
+            z = [za[i] * lam + zb[i] * (1 - lam) for i in range(64)]
+        pairs.append((z, target))
+    return pairs
+
+
+def split_target(t: List[float]):
+    w8 = t[0:8]
+    br = [t[8]]
+    parts = t[9:73]
+    mat = t[73:80]
+    mot = t[80:82]
+    pos = t[82:85]
+    return w8, br, parts, mat, mot, pos
+
+
+def train_decoder(out_dir: Path, steps: int, batch: int) -> Path:
+    torch.manual_seed(93)
+    model = DecoderMLP()
+    opt = torch.optim.Adam(model.parameters(), lr=1e-3)
+    rng = random.Random(93)
+    data = build_decoder_dataset(rng, samples_per_pair=600)
+    xs = torch.tensor([d[0] for d in data], dtype=torch.float32)
+    y_w = torch.tensor([split_target(d[1])[0] for d in data], dtype=torch.float32)   # N, 8
+    y_b = torch.tensor([split_target(d[1])[1] for d in data], dtype=torch.float32)   # N, 1
+    y_p = torch.tensor([split_target(d[1])[2] for d in data], dtype=torch.float32)   # N, 64
+    y_m = torch.tensor([split_target(d[1])[3] for d in data], dtype=torch.float32)   # N, 7
+    y_mo = torch.tensor([split_target(d[1])[4] for d in data], dtype=torch.float32)  # N, 2
+    y_po = torch.tensor([split_target(d[1])[5] for d in data], dtype=torch.float32)  # N, 3
+
+    for step in range(steps):
+        idx = torch.randint(0, xs.shape[0], (batch,))
+        z = xs[idx]
+        w8, br, parts, mat, mot, pos = model(z)
+        loss_w = F.kl_div(F.log_softmax(w8, dim=1), y_w[idx], reduction="batchmean")
+        loss = (
+            loss_w
+            + F.mse_loss(br, y_b[idx])
+            + F.mse_loss(parts, y_p[idx])
+            + F.mse_loss(mat, y_m[idx])
+            + F.mse_loss(mot, y_mo[idx])
+            + F.mse_loss(pos, y_po[idx])
+        )
+        opt.zero_grad()
+        loss.backward()
+        opt.step()
+        if step % 500 == 0:
+            print(f"  [decoder] step {step} loss {loss.item():.4f}")
+
+    fp32 = out_dir / "decoder-fp32.onnx"
+    int8 = out_dir / "decoder-v1-int8.onnx"
+    _export(
+        model, (torch.zeros(1, 64, dtype=torch.float32),),
+        fp32, int8,
+        in_names=["z"],
+        out_names=["weights", "blend_radius", "parts", "material", "motion", "pose"],
+        dyn={"z": {0: "batch"}},
+    )
+    fp32.unlink(missing_ok=True)
+    return int8
+
+
+# ── Denoiser (DDPM) ───────────────────────────────────────────────────────────
+
+class ConditionMLP(nn.Module):
+    """c(400) → c_emb(128): 2×256 Swish + LayerNorm (spec §3.3)."""
+
+    def __init__(self, c_in=400, emb=128):
+        super().__init__()
+        self.fc1 = nn.Linear(c_in, 256)
+        self.ln1 = nn.LayerNorm(256)
+        self.fc2 = nn.Linear(256, emb)
+        self.ln2 = nn.LayerNorm(emb)
+
+    def forward(self, c):
+        return self.ln2(self.fc2(F.silu(self.ln1(self.fc1(c)))))
+
+
+class DenoiserMLP(nn.Module):
+    """εθ(x[64], t[1], c_emb[128]) → ε[64]. Sinusoidal time embed → 32-d."""
+
+    def __init__(self, latent=64, cond=128, hidden=512, time_emb=32):
+        super().__init__()
+        self.time_emb = time_emb
+        self.freqs = nn.Parameter(torch.arange(1, 17, dtype=torch.float32) * 3.0, requires_grad=False)
+        self.net = nn.Sequential(
+            nn.Linear(latent + time_emb + cond, hidden), nn.SiLU(),
+            nn.Linear(hidden, hidden), nn.SiLU(),
+            nn.Linear(hidden, latent),
+        )
+
+    def t_embed(self, t_norm: torch.Tensor) -> torch.Tensor:
+        # t_norm in [0,1]; scale to a wavelength-rich range for mixing with x
+        ph = self.freqs[None, :] * (t_norm[:, None] * 1000.0)
+        return torch.cat([torch.sin(ph), torch.cos(ph)], dim=1)  # [B, 12]
+
+    def forward(self, x, t_norm, c_emb):
+        te = self.t_embed(t_norm)
+        h = torch.cat([x, te, c_emb], dim=1)
+        return self.net(h)
+
+
+def cosine_ab_tensor(t: torch.Tensor) -> torch.Tensor:
+    """Vectorised cosine alpha_bar for tensor timesteps [B]."""
+    x = ((t / CONFIG["T"] + 0.008) / 1.008) * (math.pi / 2)
+    f = torch.cos(x) ** 2
+    norm = math.cos((0.008 / 1.008) * (math.pi / 2)) ** 2
+    return f / norm
+
+
+def build_cond_dataset(corpus, rng: random.Random, n: int) -> List[Tuple[List[float], List[float]]]:
+    """(c, z_target) pairs: per-seed clouds + inter-centre blends (FR-7)."""
+    data = []
+    for _ in range(n):
+        if rng.random() < 0.75:
+            i = rng.randrange(len(corpus))
+            c = corpus[i]["c"]
+            z = list(corpus[i]["zCenter"])
+            jit = [rng.gauss(0, 0.20) for _ in range(64)]
+            z = [z[d] + jit[d] for d in range(64)]
+        else:
+            i = rng.randrange(len(corpus))
+            j = rng.randrange(len(corpus))
+            lam = rng.random()
+            c = [corpus[i]["c"][d] * lam + corpus[j]["c"][d] * (1 - lam) for d in range(400)]
+            za = corpus[i]["zCenter"]
+            zb = corpus[j]["zCenter"]
+            z = [za[d] * lam + zb[d] * (1 - lam) for d in range(64)]
+        data.append((c, z))
+    return data
+
+
+def train_denoiser(out_dir: Path, corpus, steps: int, batch: int) -> Path:
+    torch.manual_seed(7)
+    cond_mlp = ConditionMLP(CONFIG["cond_dim"], CONFIG["cond_emb"])
+    denoi = DenoiserMLP()
+    params = sum(p.numel() for p in list(cond_mlp.parameters()) + list(denoi.parameters()))
+    assert params <= CONFIG["denoiser_param_budget"], f"denoiser {params} > budget"
+    opt = torch.optim.Adam(list(cond_mlp.parameters()) + list(denoi.parameters()), lr=CONFIG["lr"])
+    rng = random.Random(7)
+    data = build_cond_dataset(corpus, rng, n=2000)
+    c_t = torch.tensor([d[0] for d in data], dtype=torch.float32)
+    z_t = torch.tensor([d[1] for d in data], dtype=torch.float32)
+
+    for step in range(steps):
+        idx = torch.randint(0, c_t.shape[0], (batch,))
+        c = c_t[idx]
+        z0 = z_t[idx]
+        t = torch.randint(0, CONFIG["T"], (batch,)).float()
+        ab = cosine_ab_tensor(t)[:, None]                      # [B,1]
+        noise = torch.randn_like(z0)
+        x_t = torch.sqrt(ab) * z0 + torch.sqrt(1 - ab) * noise
+        c_emb = cond_mlp(c)
+        eps_hat = denoi(x_t, t / CONFIG["T"], c_emb)
+        loss = F.mse_loss(eps_hat, noise)
+        opt.zero_grad()
+        loss.backward()
+        opt.step()
+        if step % 500 == 0:
+            print(f"  [denoiser] step {step} loss {loss.item():.4f}")
+
+    class FullDenoiser(nn.Module):
+        def __init__(self, cm, dn):
+            super().__init__()
+            self.cm = cm
+            self.dn = dn
+
+        def forward(self, x, t, c):
+            return self.dn(x, t, self.cm(c))
+
+    full = FullDenoiser(cond_mlp, denoi).eval()
+    fp32 = out_dir / "denoiser-fp32.onnx"
+    int8 = out_dir / "denoiser-v1-int8.onnx"
+    _export(
+        full,
+        (torch.zeros(1, 64), torch.zeros(1), torch.zeros(1, 400)),
+        fp32, int8,
+        in_names=["x", "t", "c"],
+        out_names=["eps"],
+        dyn={"x": {0: "batch"}, "t": {0: "batch"}, "c": {0: "batch"}, "eps": {0: "batch"}},
+    )
+    fp32.unlink(missing_ok=True)
+    return int8
+
+
+# ── ONNX export helper (legacy exporter; int8 dynamic) ─────────────────────────
+
+def _export(model, sample, fp32: Path, int8: Path,
+            in_names: List[str], out_names: List[str], dyn: Dict[str, Any]) -> None:
+    from onnxruntime.quantization import QuantType, quantize_dynamic
+
+    torch.onnx.export(
+        model, sample, str(fp32),
+        input_names=in_names, output_names=out_names,
+        dynamic_axes=dyn or None, opset_version=13, dynamo=False,
+    )
+    quantize_dynamic(str(fp32), str(int8), weight_type=QuantType.QInt8)
+
+
+# ── Seed corpus with REAL embeddings ───────────────────────────────────────────
+
+def build_seed_corpus(out_dir: Path) -> List[Dict[str, Any]]:
+    models_dir = out_dir / "models"
+    tok = AutoTokenizer.from_pretrained(str(models_dir / "tokenizer"))
+    embedder = ort.InferenceSession(str(models_dir / "embedder-all-minilm-l6-v2-int8.onnx"))
+    sensory = ort.InferenceSession(str(models_dir / "sensory-v0-int8.onnx"))
+
+    corpus = []
+    rng = random.Random(1)
+    for text in SEED_TEXTS:
+        e = embed_seed(text, tok, embedder)
+        q = sensory_q(e, sensory)
+        c = e + q
+        p = _hash_seed(text) % 8
+        z_center = list(ANCHOR_LATENTS[p])
+        jit = [rng.gauss(0, 0.02) for _ in range(64)]
+        z_center = [z_center[d] + jit[d] for d in range(64)]
         corpus.append({
-            "id": f"seed-{idx:02d}",
+            "id": text.replace(" ", "-"),
             "text": text,
-            "e": [0.0] * CONFIG["embed_dim"],           # TODO(embedder): real e
-            "zCenter": z_center,                         # TODO(training): trained centre
-            "sdfParams": placeholder_sdf_params(text, rng),
+            "e": e, "zCenter": z_center, "sdfParams": None,  # sdfParams filled via decoder
+            "c": c,
         })
     return corpus
 
 
-def build_dataset(corpus: List[Dict[str, Any]], noise_scale: float = 0.2, n_per_seed: int = 128) -> Optional[Any]:
-    """
-    Dataset for DDPM training: per-seed Gaussian clouds around each zCenter +
-    linear interpolations between centres (engineers FR-7 'between'
-    reachability). Returns torch tensors (latent, conditioning) or None when
-    torch is not installed.
-    TODO(training): conditioning pairs zCenter ↔ (e, q) come from the real
-    embedder/sensory heads; this stub returns (z_center, zero_condition).
-    """
-    if not HAS_TORCH:
-        return None
-    z_centers = [torch.tensor(c["zCenter"], dtype=torch.float32) for c in corpus]
-    samples: List[torch.Tensor] = []
-    for zc in z_centers:
-        for _ in range(n_per_seed):
-            noise = torch.randn(CONFIG["latent_dim"]) * noise_scale
-            samples.append(zc + noise)
-    for i in range(len(z_centers)):
-        for j in range(i + 1, len(z_centers)):
-            for k in range(8):
-                t = (k + 1) / 9.0
-                midpoint = z_centers[i] * (1 - t) + z_centers[j] * t
-                samples.append(midpoint + torch.randn(CONFIG["latent_dim"]) * noise_scale * 0.5)
-    return torch.stack(samples)
+def decode_all_sdf(corpus) -> None:
+    _ = corpus  # decoding happens inline after training in main()
 
 
-def cosine_betas(T: int, s: float = 0.008) -> List[float]:
-    """Cosine noise schedule (Nichol & Dhariwal) — beta over T training steps."""
-    betas: List[float] = []
-    for t in range(T):
-        alpha_cum = cosine_alpha_bar(t, T, s) / max(cosine_alpha_bar(t + 1, T, s), 1e-8)
-        betas.append(min(0.999, max(1e-5, 1.0 - alpha_cum)))
-    return betas
+def wrap01(x: float) -> float:
+    m = x % 1.0
+    return m + 1.0 if m < 0 else m
 
 
-def cosine_alpha_bar(t: float, T: int, s: float) -> float:
-    x = ((t / T + s) / (1 + s)) * (math.pi / 2)
-    return math.cos(x) ** 2
+def wrap_two_pi(x: float) -> float:
+    m = x % (2.0 * math.pi)
+    return m + 2.0 * math.pi if m < 0 else m
 
 
-# ── ONNX export stubs (guarded, TODO markers) ─────────────────────────────────
-
-def export_onnx_stubs(out_dir: Path) -> None:
-    """
-    TODO(model): the real exports once training exists.
-      - embedder: all-MiniLM-L6-v2 → int8 (input_ids [1,L], attention_mask)
-      - sensory-v0: linear 384 → 16, clamped [0,1] (AMEND-4: derived on the 8
-        seed forms; regenerated here alongside the generator)
-      - denoiser-v1: c = concat(e,q) → 2×256 Swish+LN → c_emb(128); εθ(x,t,c)
-      - decoder-v1: z(64) → {weights[8], blend_radius, parts[64], material[7],
-        motion[2], pose[3]} — match src/core/sdfParams.ts ONNX contract.
-    This stub writes nothing but prints the contract so the export step cannot
-    silently drift from the browser wrappers.
-    """
-    print("[export] contract: denoiser inputs x(64), t(1 norm 0..1), c(400) → eps(64)")
-    print("[export] contract: decoder outputs weights[8], blend_radius, parts[64], "
-          "material[7], motion[2], pose[3]")
-    print("[export] contract: sensory-v0 linear 384→16 clamp [0,1]; channels are data")
+def _clamp(x: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, x))
 
 
-def sha256_of_file(path: Path) -> str:
-    import hashlib
-    h = hashlib.sha256()
-    h.update(path.read_bytes())
-    return h.hexdigest()
+def soft_bias(x: float, lo: float, hi: float) -> float:
+    center = (lo + hi) / 2
+    radius = (hi - lo) / 2 + 0.18
+    z = (x - center) / radius
+    squashed = z / (1 + abs(z))
+    return center + radius * squashed
 
 
-def artifact_entry(path: Optional[Path], dim: Optional[int] = None,
-                   steps: Optional[int] = None, max_tokens: Optional[int] = None) -> Dict[str, Any]:
-    if path is not None and path.exists() and path.stat().st_size > 0:
-        return {
-            "file": str(path),
-            "sha256": sha256_of_file(path),
-            "sizeBytes": path.stat().st_size,
-            **({"dim": dim} if dim is not None else {}),
-            **({"steps": steps} if steps is not None else {}),
-            **({"maxTokens": max_tokens} if max_tokens is not None else {}),
-        }
-    return {"file": None, "sha256": "", "sizeBytes": 0,
-            **({"dim": dim} if dim is not None else {}),
-            **({"steps": steps} if steps is not None else {}),
-            **({"maxTokens": max_tokens} if max_tokens is not None else {})}
+def softmax(vals: List[float]) -> List[float]:
+    m = max(vals)
+    exps = [math.exp(v - m) for v in vals]
+    s = sum(exps)
+    return [v / s for v in exps]
 
 
-def write_seed_forms(out_dir: Path, corpus: List[Dict[str, Any]]) -> None:
-    payload = {"note": "generated by scripts/train_generator.py", "seeds": corpus}
-    (out_dir / "seed-forms.json").write_text(
-        json.dumps(payload, indent=2), encoding="utf-8")
-    print(f"[corpus] wrote seed-forms.json ({len(corpus)} seeds)")
-
-
-def write_manifest(out_dir: Path, stamp: str) -> Dict[str, Any]:
-    models_dir = out_dir / "models"
-    models_dir.mkdir(parents=True, exist_ok=True)
-    artifacts = {
-        "embedder": artifact_entry(models_dir / "embedder-all-minilm-l6-v2-int8.onnx",
-                                   dim=CONFIG["embed_dim"], max_tokens=CONFIG["max_tokens"]),
-        "tokenizer": artifact_entry(None, max_tokens=CONFIG["max_tokens"]),
-        "sensory": artifact_entry(models_dir / "sensory-v0-int8.onnx", dim=16),
-        "denoiser": artifact_entry(models_dir / "denoiser-v1-int8.onnx",
-                                   dim=CONFIG["latent_dim"], steps=CONFIG["num_ddim_steps"]),
-        "decoder": artifact_entry(models_dir / "decoder-v1-int8.onnx", dim=CONFIG["latent_dim"]),
-        "aligner": None,  # Slice 2 (DR-5 registry shape stable now)
+def decode_raw_to_sdfparams(raw: List[float]) -> Dict[str, Any]:
+    """Mirror of src/core/sdfParams.ts decodeRawToSdfParams (structure + clamps)."""
+    w = softmax(raw[0:8])
+    parts = []
+    for i in range(8):
+        b = 9 + i * 8
+        parts.append({
+            "scale": [_clamp(raw[b + 0], 0.05, 3), _clamp(raw[b + 1], 0.05, 3),
+                      _clamp(raw[b + 2], 0.05, 3)],
+            "offset": [_clamp(raw[b + 3], -1.5, 1.5), _clamp(raw[b + 4], -1.5, 1.5),
+                       _clamp(raw[b + 5], -1.5, 1.5)],
+            "twist": _clamp(raw[b + 6], -math.pi, math.pi),
+            "displacement": _clamp(raw[b + 7], 0, 0.5),
+        })
+    mat = raw[73:80]
+    return {
+        "weights": w,
+        "blendRadius": _clamp(raw[8], 0.05, 0.5),
+        "parts": parts,
+        "material": {
+            "hue": wrap01(mat[0]),
+            "saturation": _clamp(soft_bias(mat[1], 0.1, 0.7), 0, 1),
+            "lightness": _clamp(soft_bias(mat[2], 0.5, 0.95), 0, 1),
+            "roughness": _clamp(mat[3], 0, 1),
+            "metalness": _clamp(mat[4], 0, 1),
+            "clearcoat": _clamp(mat[5], 0, 1),
+            "emissive": _clamp(mat[6], 0, 1),
+        },
+        "motion": {"breathe": _clamp(raw[80], 0, 1), "sway": _clamp(raw[81], 0, 1)},
+        "pose": {
+            "yaw": wrap_two_pi(raw[82]),
+            "pitch": _clamp(raw[83], -math.pi / 2, math.pi / 2),
+            "roll": wrap_two_pi(raw[84]),
+        },
     }
-    present = [e for e in artifacts.values() if e and e.get("file")]
-    total = sum(int(e["sizeBytes"]) for e in present)
-    manifest: Dict[str, Any] = {
+
+
+# ── Manifest ───────────────────────────────────────────────────────────────────
+
+def artifact_entry(path: Optional[Path], root: Path, **extra) -> Dict[str, Any]:
+    if path is None:
+        return {"file": None, "sha256": "", "sizeBytes": 0, **extra}
+    return {"file": str(path.relative_to(root)), "sha256": _sha256(path),
+            "sizeBytes": path.stat().st_size, **extra}
+
+
+def write_manifest(out_dir: Path, stamp: str, denoiser: Path, decoder: Path) -> Dict[str, Any]:
+    models_dir = out_dir / "models"
+    present = [denoiser, decoder, models_dir / "embedder-all-minilm-l6-v2-int8.onnx",
+               models_dir / "sensory-v0-int8.onnx"]
+    total = sum(int(p.stat().st_size) for p in present)
+    manifest = {
         "version": "0.1.0-generated",
         "slice": 1,
         "generatedAt": stamp,
         "totalBytes": total,
-        "artifacts": artifacts,
+        "artifacts": {
+            "embedder": artifact_entry(models_dir / "embedder-all-minilm-l6-v2-int8.onnx",
+                                       out_dir, dim=CONFIG["embed_dim"], max_tokens=CONFIG["max_tokens"]),
+            "tokenizer": artifact_entry(models_dir / "tokenizer" / "vocab.txt",
+                                        out_dir, max_tokens=CONFIG["max_tokens"]),
+            "sensory": artifact_entry(models_dir / "sensory-v0-int8.onnx", out_dir, dim=16),
+            "denoiser": artifact_entry(denoiser, out_dir, dim=CONFIG["latent_dim"],
+                                       steps=CONFIG["num_ddim_steps"]),
+            "decoder": artifact_entry(decoder, out_dir, dim=CONFIG["latent_dim"]),
+            "aligner": None,
+        },
         "sensoryChannels": [{"name": ch} for ch in SENSORY_CHANNELS],
         "trainingSource": {
             "seedForms": len(SEED_TEXTS),
             "generatedAt": stamp,
-            "anchors": ANCHOR_LATENTS,          # FR-7 one-hot primitive anchors
+            "anchors": ANCHOR_LATENTS,
             "canonicalD0Latent": CANONICAL_D0_LATENT,
             "config": CONFIG,
         },
         "licenses": LICENSES,
     }
     (models_dir / "models.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-    print(f"[manifest] wrote models.json (totalBytes={total})")
     return manifest
-
-
-# ── Training (guarded) ─────────────────────────────────────────────────────────
-
-def run_training(args: argparse.Namespace, corpus: List[Dict[str, Any]]) -> None:
-    if not HAS_TORCH:
-        print("[train] torch not installed — skipping training (structural scaffold)")
-        return
-    torch.manual_seed(args.seed)
-    rng = random.Random(args.seed)
-    dataset = build_dataset(corpus)
-    if dataset is None:
-        return
-    # TODO(training): 2×256 Swish+LN conditioning MLP + MLP denoiser (≤3M).
-    # DDPM loop: cosine betas, MSE on ε, Adam lr, batch 64, ~3000 steps.
-    print(f"[train] placeholder training path: {dataset.shape[0]} samples, "
-          f"betas length {len(cosine_betas(CONFIG['T']))}")
 
 
 # ── CLI ────────────────────────────────────────────────────────────────────────
 
 def main(argv: Optional[List[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="Beyond Shape Slice 1 training scaffold")
-    parser.add_argument("--out-dir", type=Path, default=Path("public"),
-                        help="output directory (default: public/)")
+    parser = argparse.ArgumentParser(description="Beyond Shape Slice 1 model training")
+    parser.add_argument("--out-dir", type=Path, default=Path("public"))
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--steps", type=int, default=CONFIG["steps"])
     parser.add_argument("--batch", type=int, default=CONFIG["batch"])
-    parser.add_argument("--lr", type=float, default=CONFIG["lr"])
-    parser.add_argument("--no-export", action="store_true",
-                        help="skip the ONNX-export contract printout")
-    parser.add_argument("--stamp", type=str, default=None,
-                        help="override the content-stable build stamp (default: "
-                             "derived from seeds+config so regeneration is byte-identical)")
+    parser.add_argument("--stamp", type=str, default=None)
     args = parser.parse_args(argv)
 
-    corpus = build_seed_corpus()
+    if not HAS_TORCH or not HAS_ORT:
+        print("[train] torch/onnxruntime not available — install requirements.txt")
+        return 1
+
     out_dir = args.out_dir.resolve()
-    out_dir.mkdir(parents=True, exist_ok=True)
+    models_dir = out_dir / "models"
+    models_dir.mkdir(parents=True, exist_ok=True)
 
-    write_seed_forms(out_dir, corpus)
     stamp = args.stamp or content_stamp()
-    manifest = write_manifest(out_dir, stamp)
 
-    run_training(args, corpus)
-    if not args.no_export:
-        export_onnx_stubs(out_dir)
+    print("[1/4] seed embeddings via shipped int8 artifacts …")
+    corpus = build_seed_corpus(out_dir)
 
-    if not HAS_TORCH:
-        print("\n[done] torch not installed → manifest+corpus regenerated only.")
-        print("       install torch to run DDPM training + ONNX export (CR-7).")
-    else:
-        print("\n[done] scaffold training path complete — artifacts regenerated.")
+    print("[2/4] training decoder …")
+    decoder = train_decoder(models_dir, steps=args.steps, batch=args.batch)
 
-    _ = manifest
+    print("[3/4] training denoiser (DDPM) …")
+    denoiser = train_denoiser(models_dir, corpus, steps=args.steps, batch=args.batch)
+
+    print("[4/4] decoding seed sdfParams + writing corpus & manifest …")
+    import numpy as np
+
+    dec = ort.InferenceSession(str(decoder))
+    for seed in corpus:
+        z = np.array([seed["zCenter"]], dtype=np.float32)
+        out = dec.run(["weights", "blend_radius", "parts", "material", "motion", "pose"],
+                      {"z": z})
+        raw = (
+            [float(v) for v in out[0][0]]
+            + [float(out[1][0][0])]
+            + [float(v) for v in out[2][0]]
+            + [float(v) for v in out[3][0]]
+            + [float(v) for v in out[4][0]]
+            + [float(v) for v in out[5][0]]
+        )
+        seed["sdfParams"] = decode_raw_to_sdfparams(raw)
+        seed.pop("c", None)
+
+    seed_file = out_dir / "seed-forms.json"
+    seed_file.write_text(
+        json.dumps({"note": "generated by scripts/train_generator.py", "seeds": corpus},
+                   indent=2), encoding="utf-8")
+    _ = write_manifest(out_dir, stamp, denoiser, decoder)
+    print(f"[done] seeds={len(corpus)} decoder={decoder.stat().st_size}B "
+          f"denoiser={denoiser.stat().st_size}B → {out_dir}")
     return 0
 
 

@@ -47,7 +47,7 @@ export class SensoryHead {
       throw new ModelMissingError('sensory', `sensory session failed: ${(err as Error).message}`);
     });
     const input = new ort.Tensor('float32', new Float32Array(e), [1, e.length]);
-    const output = await session.run({ input: input });
+    const output = await session.run({ e: input }); // exported input name is "e"
     const raw = (output[session.outputNames[0]!] as ort.Tensor).data as Float32Array;
     const q = new Float32Array(SENSORY_CHANNEL_COUNT);
     for (let i = 0; i < SENSORY_CHANNEL_COUNT; i += 1) {

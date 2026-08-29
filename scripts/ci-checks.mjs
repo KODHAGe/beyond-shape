@@ -118,19 +118,21 @@ function walkOnnx(dir, out = []) {
   if (clean) pass('no Math.random in src/core/{generator,sdfParams,seededRng}.ts (FR-10)');
 }
 
-// ── Check 4: no fetch in src/core except models.ts (FR-5/QR-3) ────────────────
+// ── Check 4: no fetch in src/core except models.ts + tokenizer.ts (FR-5/QR-3) ──
 {
   const coreDir = join(ROOT, 'src', 'core');
+  const EXEMPT = new Set(['models.ts', 'tokenizer.ts']); // same-origin static assets only
   let clean = true;
   for (const entry of readdirSync(coreDir).filter((f) => f.endsWith('.ts'))) {
-    if (entry === 'models.ts') continue; // sole named exception (spec §3.2 R-f)
+    if (EXEMPT.has(entry)) continue;
     const src = readFileSync(join(coreDir, entry), 'utf8');
     if (/\bfetch\s*\(/.test(src)) {
-      fail(`src/core/${entry} contains fetch( — only models.ts may (FR-5/QR-3)`);
+      fail(`src/core/${entry} contains fetch( — only models.ts (manifest)` +
+        ` and tokenizer.ts (vocab, same-origin) may (FR-5/QR-3)`);
       clean = false;
     }
   }
-  if (clean) pass('no fetch in src/core inference modules (FR-5/QR-3)');
+  if (clean) pass('no fetch in src/core inference modules (FR-5/QR-3; models.ts+tokenizer.ts exempt)');
 }
 
 // ── Check 5: no client secrets ────────────────────────────────────────────────
