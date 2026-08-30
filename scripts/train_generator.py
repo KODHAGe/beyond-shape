@@ -29,6 +29,7 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import random
 import sys
 from pathlib import Path
@@ -60,6 +61,9 @@ from transformers import AutoTokenizer  # for tokenizing seeds
 # ── Spec-bound constants (spec §3.3 / §3.5) ──────────────────────────────────
 
 SEED_TEXTS = [
+    # Short — "one clean voice" (richness ≈ 0)
+    "rain",
+    "glass",
     "the sea is calm tonight",
     "a small yellow bird",
     "cold rain on tin roofs",
@@ -68,7 +72,23 @@ SEED_TEXTS = [
     "heavy gray afternoon",
     "sugar and spice and everything nice",
     "the silence after music",
+    # Structure-varied — "richness follows structure" (Slice 2, multi-voice)
+    "a bright morning",
+    "the garden after the rain glistens",
+    "we carry the weight of small quiet decisions",
+    "two sparrows argue above the wet fence about the last seed",
+    "the old clock in the hall counts the hours of people who used to live here",
+    "light moves across the room as the afternoon leans into evening, and the dust performs its slow dance",
+    "the ferry takes the whole grey city across the sound in the morning, past islands that do not care about anyone",
+    "I remember the summer kitchen, the wasps in the jam, my grandmother singing off-key to the radio, the sugar on the table",
+    "the fog is dense this morning and the ferry has been delayed for hours while the gulls keep circling the grey water",
 ]
+
+# The structure convention, mirrored from src/aesthetics/register.ts:
+# richness = clamp((tokens − 3) / 22, 0, 1) — a reading's richness by length,
+# visible machine grammar (Implementation Spec Phase C §3).
+def structure_richness(tokens: int) -> float:
+    return max(0.0, min(1.0, (tokens - 3) / 22.0))
 
 SENSORY_CHANNELS = [
     "light", "warmth", "motion", "weight", "texture",
@@ -86,9 +106,9 @@ CONFIG = {
     "T": 1000,                  # cosine diffusion timesteps
     "num_ddim_steps": 25,       # sampling steps (DDIM, browser)
     "latent_dim": 64,
-    "cond_dim": 400,            # c = concat(e[384], q[16])
+    "cond_dim": 401,            # c = concat(e[384], q[16], richness[1]) — Slice 2
     "cond_emb": 128,            # c_emb after 2×256 Swish+LayerNorm
-    "lr": 1e-3,
+    "lr": 5e-4,                 # Slice 2: lower LR — richer dataset was unstable at 1e-3
     "batch": 64,
     "steps": 3000,
     "denoiser_param_budget": 3_000_000,   # ≤ 3M params (spec §3.3)
@@ -358,14 +378,20 @@ class ConditionMLP(nn.Module):
 
 
 class DenoiserMLP(nn.Module):
-    """εθ(x[64], t[1], c_emb[128]) → ε[64]. Sinusoidal time embed → 32-d."""
+    """εθ(x[64], t[1], c_emb[128], richness[1]) → ε[64]. Sinusoidal time embed → 32-d.
 
-    def __init__(self, latent=64, cond=128, hidden=512, time_emb=32):
+    Richness gets a DIRECT channel into the body (not only through the 401-d
+    conditioning MLP, where a single scalar can be washed out by the 384-d
+    embedding). This is Slice 2's structural guarantee that "rich c → several
+    voices" is learnable. Export keeps the same `c[401]` interface.
+    """
+
+    def __init__(self, latent=64, cond=128, hidden=512, time_emb=32, rich=1):
         super().__init__()
         self.time_emb = time_emb
         self.freqs = nn.Parameter(torch.arange(1, 17, dtype=torch.float32) * 3.0, requires_grad=False)
         self.net = nn.Sequential(
-            nn.Linear(latent + time_emb + cond, hidden), nn.SiLU(),
+            nn.Linear(latent + time_emb + cond + rich, hidden), nn.SiLU(),
             nn.Linear(hidden, hidden), nn.SiLU(),
             nn.Linear(hidden, latent),
         )
@@ -375,9 +401,9 @@ class DenoiserMLP(nn.Module):
         ph = self.freqs[None, :] * (t_norm[:, None] * 1000.0)
         return torch.cat([torch.sin(ph), torch.cos(ph)], dim=1)  # [B, 12]
 
-    def forward(self, x, t_norm, c_emb):
+    def forward(self, x, t_norm, c_emb, richness):
         te = self.t_embed(t_norm)
-        h = torch.cat([x, te, c_emb], dim=1)
+        h = torch.cat([x, te, c_emb, richness], dim=1)
         return self.net(h)
 
 
@@ -390,20 +416,43 @@ def cosine_ab_tensor(t: torch.Tensor) -> torch.Tensor:
 
 
 def build_cond_dataset(corpus, rng: random.Random, n: int) -> List[Tuple[List[float], List[float]]]:
-    """(c, z_target) pairs: per-seed clouds + inter-centre blends (FR-7)."""
+    """(c, z_target) pairs: per-seed clouds + inter-centre blends (FR-7).
+
+    Richness coupling is STRUCTURAL, not left to the regression to find:
+    seeds are sampled weighted by (1 + 5·richness), rich readings get tighter
+    jitter and a moderate share of CLEAN multi-anchor targets, so the denoiser
+    sees strong signal that "rich c → several voices at once" (Slice 2).
+    """
+    weights = [1.0 + 5.0 * (corpus[i].get("richness", 0.0)) for i in range(len(corpus))]
+
+    def pick_seed() -> int:
+        total = sum(weights)
+        r = rng.random() * total
+        acc = 0.0
+        for i, w in enumerate(weights):
+            acc += w
+            if r <= acc:
+                return i
+        return len(corpus) - 1
+
     data = []
     for _ in range(n):
-        if rng.random() < 0.75:
-            i = rng.randrange(len(corpus))
-            c = corpus[i]["c"]
-            z = list(corpus[i]["zCenter"])
-            jit = [rng.gauss(0, 0.20) for _ in range(64)]
-            z = [z[d] + jit[d] for d in range(64)]
+        if rng.random() < 0.7:
+            entry = corpus[pick_seed()]
+            c = entry["c"]
+            z0 = entry["zCenter"]
+            rich = entry.get("richness", 0.0)
+            if rich > 0.4 and rng.random() < 0.25:
+                z = list(z0)  # clean multi-anchor target
+            else:
+                jit = 0.20 * (1.0 - 0.55 * rich)  # tight rich, loose short
+                z = [z0[d] + rng.gauss(0.0, jit) for d in range(64)]
         else:
             i = rng.randrange(len(corpus))
             j = rng.randrange(len(corpus))
             lam = rng.random()
-            c = [corpus[i]["c"][d] * lam + corpus[j]["c"][d] * (1 - lam) for d in range(400)]
+            c = [corpus[i]["c"][d] * lam + corpus[j]["c"][d] * (1 - lam)
+                 for d in range(CONFIG["cond_dim"])]
             za = corpus[i]["zCenter"]
             zb = corpus[j]["zCenter"]
             z = [za[d] * lam + zb[d] * (1 - lam) for d in range(64)]
@@ -413,13 +462,15 @@ def build_cond_dataset(corpus, rng: random.Random, n: int) -> List[Tuple[List[fl
 
 def train_denoiser(out_dir: Path, corpus, steps: int, batch: int) -> Path:
     torch.manual_seed(7)
-    cond_mlp = ConditionMLP(CONFIG["cond_dim"], CONFIG["cond_emb"])
+    # c_eq = e+q (400) → c_emb; richness bypasses the compression and enters the
+    # denoiser body directly through its dedicated channel (Slice 2).
+    cond_mlp = ConditionMLP(c_in=400, emb=CONFIG["cond_emb"])
     denoi = DenoiserMLP()
     params = sum(p.numel() for p in list(cond_mlp.parameters()) + list(denoi.parameters()))
     assert params <= CONFIG["denoiser_param_budget"], f"denoiser {params} > budget"
     opt = torch.optim.Adam(list(cond_mlp.parameters()) + list(denoi.parameters()), lr=CONFIG["lr"])
     rng = random.Random(7)
-    data = build_cond_dataset(corpus, rng, n=2000)
+    data = build_cond_dataset(corpus, rng, n=4000)
     c_t = torch.tensor([d[0] for d in data], dtype=torch.float32)
     z_t = torch.tensor([d[1] for d in data], dtype=torch.float32)
 
@@ -431,8 +482,9 @@ def train_denoiser(out_dir: Path, corpus, steps: int, batch: int) -> Path:
         ab = cosine_ab_tensor(t)[:, None]                      # [B,1]
         noise = torch.randn_like(z0)
         x_t = torch.sqrt(ab) * z0 + torch.sqrt(1 - ab) * noise
-        c_emb = cond_mlp(c)
-        eps_hat = denoi(x_t, t / CONFIG["T"], c_emb)
+        c_emb = cond_mlp(c[:, :400])
+        rich = c[:, 400:401]
+        eps_hat = denoi(x_t, t / CONFIG["T"], c_emb, rich)
         loss = F.mse_loss(eps_hat, noise)
         opt.zero_grad()
         loss.backward()
@@ -447,14 +499,18 @@ def train_denoiser(out_dir: Path, corpus, steps: int, batch: int) -> Path:
             self.dn = dn
 
         def forward(self, x, t, c):
-            return self.dn(x, t, self.cm(c))
+            # c[401] = e(384) + q(16) + richness(1); richness enters the body
+            # directly through the model's dedicated channel (Slice 2).
+            c_eq = c[:, :400]
+            richness = c[:, 400:401]
+            return self.dn(x, t, self.cm(c_eq), richness)
 
     full = FullDenoiser(cond_mlp, denoi).eval()
     fp32 = out_dir / "denoiser-fp32.onnx"
-    int8 = out_dir / "denoiser-v1-int8.onnx"
+    int8 = out_dir / "denoiser-v2-int8.onnx"
     _export(
         full,
-        (torch.zeros(1, 64), torch.zeros(1), torch.zeros(1, 400)),
+        (torch.zeros(1, 64), torch.zeros(1), torch.zeros(1, CONFIG["cond_dim"])),
         fp32, int8,
         in_names=["x", "t", "c"],
         out_names=["eps"],
@@ -486,19 +542,39 @@ def build_seed_corpus(out_dir: Path) -> List[Dict[str, Any]]:
     embedder = ort.InferenceSession(str(models_dir / "embedder-all-minilm-l6-v2-int8.onnx"))
     sensory = ort.InferenceSession(str(models_dir / "sensory-v0-int8.onnx"))
 
+    def richness_of(text: str) -> Tuple[float, int]:
+        ids, _ = tokenize_seed(text, tok, CONFIG["max_tokens"])
+        return structure_richness(len(ids)), len(ids)
+
+    def z_center_for(p: int, richness: float, rng: random.Random) -> List[float]:
+        # Short readings keep ONE clean anchor (centre-legible — Concept
+        # amendment). Rich readings get a MULTI-ANCHOR convex centre, so the
+        # decoder (trained on anchor blends, FR-7) surfaces several voices:
+        # "richness follows structure" lives in the data, taught to the denoiser.
+        if richness <= 0.15:
+            k = 1
+        else:
+            k = min(4, 1 + int(round(richness * 3)))
+        anchors = [(p + j * 2) % 8 for j in range(k)]
+        z = [0.0] * CONFIG["latent_dim"]
+        for a in anchors:
+            z[a] = 1.0 / k
+        return [z[d] + rng.gauss(0, 0.02) for d in range(CONFIG["latent_dim"])]
+
     corpus = []
     rng = random.Random(1)
     for text in SEED_TEXTS:
         e = embed_seed(text, tok, embedder)
         q = sensory_q(e, sensory)
-        c = e + q
+        richness, tokens = richness_of(text)
+        c = e + q + [richness]
         p = _hash_seed(text) % 8
-        z_center = list(ANCHOR_LATENTS[p])
-        jit = [rng.gauss(0, 0.02) for _ in range(64)]
-        z_center = [z_center[d] + jit[d] for d in range(64)]
+        z_center = z_center_for(p, richness, rng)
         corpus.append({
             "id": text.replace(" ", "-"),
             "text": text,
+            "tokens": tokens,
+            "richness": richness,
             "e": e, "zCenter": z_center, "sdfParams": None,  # sdfParams filled via decoder
             "c": c,
         })
@@ -590,8 +666,8 @@ def write_manifest(out_dir: Path, stamp: str, denoiser: Path, decoder: Path) -> 
                models_dir / "sensory-v0-int8.onnx"]
     total = sum(int(p.stat().st_size) for p in present)
     manifest = {
-        "version": "0.1.0-generated",
-        "slice": 1,
+        "version": "0.2.0-generated",
+        "slice": 2,
         "generatedAt": stamp,
         "totalBytes": total,
         "artifacts": {
@@ -644,7 +720,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     corpus = build_seed_corpus(out_dir)
 
     print("[2/4] training decoder …")
-    decoder = train_decoder(models_dir, steps=args.steps, batch=args.batch)
+    if os.environ.get("BS_SKIP_DECODER") and (models_dir / "decoder-v1-int8.onnx").exists():
+        # Decoder is corpus-independent + deterministic; skip on iteration reruns.
+        decoder = models_dir / "decoder-v1-int8.onnx"
+        print("       (BS_SKIP_DECODER set — reusing decoder-v1-int8.onnx)")
+    else:
+        decoder = train_decoder(models_dir, steps=args.steps, batch=args.batch)
 
     print("[3/4] training denoiser (DDPM) …")
     denoiser = train_denoiser(models_dir, corpus, steps=args.steps, batch=args.batch)

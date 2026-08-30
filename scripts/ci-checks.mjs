@@ -176,6 +176,36 @@ function walkOnnx(dir, out = []) {
   }
 }
 
+// ── Check 8: "richness follows structure" (Phase C Slice 2 acceptance) ───────
+{
+  const seedPath = join(ROOT, 'public', 'seed-forms.json');
+  let seeds = [];
+  try {
+    const raw = JSON.parse(readFileSync(seedPath, 'utf8'));
+    seeds = (Array.isArray(raw) ? raw : raw.seeds) || [];
+  } catch (err) {
+    fail(`cannot parse ${seedPath}: ${err.message}`);
+  }
+  if (seeds.length > 0) {
+    const rich = seeds.filter(
+      (s) => (typeof s.tokens === 'number' ? s.tokens : (s.text || '').split(/\s+/).length) >= 15,
+    );
+    if (rich.length >= 2) {
+      const activeOf = (s) => (s.sdfParams?.weights || []).filter((w) => w > 0.08).length;
+      const atLeastTwo = rich.filter((s) => activeOf(s) >= 2).length;
+      if (atLeastTwo < rich.length / 2) {
+        fail(`rich readings must surface ≥ 2 voices: ${atLeastTwo}/${rich.length} (Slice 2 acceptance)`);
+      } else {
+        pass(`structure voices: ${atLeastTwo}/${rich.length} rich seeds surface ≥ 2 active parts`);
+      }
+    } else if (rich.length === 0) {
+      pass('seed corpus has no structure-rich texts yet (Slice 2 pending)');
+    } else {
+      pass(`structure corpus present (${rich.length} rich seeds)`);
+    }
+  }
+}
+
 if (failures > 0) {
   console.error(`\nci-checks: ${failures} assertion(s) failed`);
   process.exit(1);

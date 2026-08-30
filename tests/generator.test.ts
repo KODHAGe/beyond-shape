@@ -19,11 +19,15 @@ const fakeDenoiser: Denoiser = {
     let csum = 0;
     for (let i = 0; i < c.length; i += 8) csum += c[i]!;
     for (let i = 0; i < LATENT_DIM; i += 1) {
+      // Per-dimension q coupling (dims 384..399) so conditioning is measurable
+      // WITHOUT relying on latent-explosion amplification (Slice 2 manifold clamp).
+      const qD = c[384 + (i % 16)] ?? 0;
       out[i] =
         0.1 * xT[i]! +
         0.002 * (t / TOTAL_TIMESTEPS) +
         0.001 * csum +
-        0.05 * Math.sin(i + 3 * xT[i]!);
+        0.05 * Math.sin(i + 3 * xT[i]!) +
+        0.05 * qD;
     }
     return out;
   },
@@ -52,10 +56,17 @@ function embedding(seedValue: number): Float32Array {
 const TEXT = 'a quiet morning in the garden';
 
 describe('generator DDIM (spec §3.3)', () => {
-  it('builds conditioning c = concat(e, q) with the bound dims (FR-3)', () => {
+  it('builds conditioning c = concat(e, q, richness) with the bound dims (FR-3)', () => {
     const c = buildConditioning(embedding(1), gaussian(0.4));
     expect(c.length).toBe(COND_DIM);
-    expect(Array.from(c.slice(384))).toEqual(Array.from(gaussian(0.4)));
+    expect(Array.from(c.slice(384, 400))).toEqual(Array.from(gaussian(0.4)));
+    expect(c[400]).toBe(0); // length-blind default
+  });
+
+  it('places structure richness at c[400] (Phase C, Slice 2)', () => {
+    const c = buildConditioning(embedding(1), gaussian(0.4), 0.7);
+    expect(c.length).toBe(COND_DIM);
+    expect(c[400]).toBeCloseTo(0.7, 6);
   });
 
   it('produces a 64-d latent from the canonical d=0 start (FR-8)', async () => {

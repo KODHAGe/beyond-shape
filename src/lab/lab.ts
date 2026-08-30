@@ -25,7 +25,7 @@ import type { SdfParams } from '../types';
 const LAB_SEED = 7; // one camera language across the whole comparison
 const GEN_SEED = 11; // generation seed — same sentence, same read
 const STATIONS = [0.15, 0.5, 0.85];
-const PRESENCE_SENTENCES = 3;
+const PRESENCE_SENTENCES = 30; // the whole (growing) seed corpus
 const ACTIVE_SHAPE_THRESHOLD = 0.08;
 
 /** How many parts of a reading are actually present (weight above a floor). */
@@ -219,7 +219,8 @@ function buildLab(): void {
 
       const e = await embedder.embed(text);
       const q = await sensory.forward(e);
-      const zs = await generateDistribution({ text, e, q, drift: 0.4, seed: GEN_SEED, denoiser });
+      const richness = structureRichness(await embedder.tokenCount(text));
+      const zs = await generateDistribution({ text, e, q, drift: 0.4, seed: GEN_SEED, denoiser, richness });
       const sdfParams = await decoder.decode(zs[0] as Float32Array);
 
       const seed: LabSeed = { text, tokens: ids.length, sdfParams };

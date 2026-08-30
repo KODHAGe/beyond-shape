@@ -56,7 +56,8 @@ describe('models manifest', () => {
     // Do NOT pin `version` — it changes on every legitimate regeneration (LR-9).
     expect(typeof m.version).toBe('string');
     expect(m.version.length).toBeGreaterThan(0);
-    expect(m.slice).toBe(1);
+    // Slice stamps move on (1 → 2 → …); the registry shape is the stable part.
+    expect(Number.isInteger(m.slice) && m.slice > 0).toBe(true);
     expect(m.artifacts.aligner).toBeNull(); // DR-5: aligner key present, null until Slice 2
     expect(sensoryChannels(m).map((c) => c.name)).toEqual(V0_CHANNELS);
     expect(m.licenses.some((l) => l.includes('Apache-2.0'))).toBe(true);

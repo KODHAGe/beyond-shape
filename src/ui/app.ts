@@ -208,6 +208,7 @@ export async function mountApp(root: HTMLElement): Promise<AppHandle> {
         drift: driftValue,
         seed: seedValue,
         denoiser,
+        richness,
       });
       const z = zs[0] as Float32Array;
       const zAlternates = zs.slice(1);

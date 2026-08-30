@@ -26,7 +26,7 @@ import { createSeededRng, SeededRng } from './seededRng';
 import * as ort from 'onnxruntime-web';
 
 export const LATENT_DIM = 64;
-export const COND_DIM = 400; // e 384 + q 16
+export const COND_DIM = 401; // e 384 + q 16 + structure richness 1 (Phase C, Slice 2)
 export const TOTAL_TIMESTEPS = 1000; // training schedule length (cosine β)
 export const DDIM_STEPS = 25; // sampling steps
 export const ALTERNATE_COUNT = 3; // FR-9: seeds s+1 … s+3
@@ -57,14 +57,15 @@ export function ddimTimesteps(numSteps = DDIM_STEPS, total = TOTAL_TIMESTEPS): n
   return ts;
 }
 
-// ── Conditioning: pure concat(e, q) → c ∈ R^400 (model-independent) ──────────
+// ── Conditioning: pure concat(e, q, richness) → c ∈ R^401 (model-independent) ─
 
-export function buildConditioning(e: Float32Array, q: Float32Array): Float32Array {
+export function buildConditioning(e: Float32Array, q: Float32Array, richness = 0): Float32Array {
   if (e.length !== 384) throw new Error(`buildConditioning: e must be 384-d, got ${e.length}`);
   if (q.length !== 16) throw new Error(`buildConditioning: q must be 16-d, got ${q.length}`);
-  const c = new Float32Array(384 + 16);
+  const c = new Float32Array(384 + 16 + 1);
   c.set(e, 0);
   c.set(q, 384);
+  c[400] = richness;
   return c;
 }
 
@@ -124,6 +125,21 @@ export async function ddimSampleLatent(
         ((x[d] ?? 0) - Math.sqrt(Math.max(0, 1 - ab)) * (eps[d] ?? 0)) / Math.sqrt(Math.max(ab, 1e-8));
     }
 
+    // Latent-manifold clamp (Slice 2): at t→T, ᾱ→0 and tiny ε errors explode
+    // predX0 to |z| of hundreds — far outside the decoder's trained |z|≲1.5
+    // distribution, collapsing every decode to one-hot. Clamping the predicted
+    // x0 to the manifold keeps the seeded trajectory on-manifold deterministically
+    // (mirrored in scripts/verify_voices.py). Not a fake voice: it bounds the
+    // sample to the space the decoder was actually trained on.
+    let normSq = 0;
+    for (let d = 0; d < LATENT_DIM; d += 1) normSq += (predX0[d] ?? 0) * (predX0[d] ?? 0);
+    const norm = Math.sqrt(normSq);
+    const MAX_LATENT_NORM = 2.0;
+    if (norm > MAX_LATENT_NORM) {
+      const scale = MAX_LATENT_NORM / norm;
+      for (let d = 0; d < LATENT_DIM; d += 1) predX0[d] = (predX0[d] ?? 0) * scale;
+    }
+
     if (tPrev <= 0) {
       x = predX0;
       break;
@@ -160,11 +176,14 @@ export interface GenerateParams {
   drift: number;
   seed: number;
   denoiser: Denoiser;
+  /** Structure richness 0..1 — the on-device "richness follows structure"
+   *  signal; part of the conditioning (default 0 = length-blind). */
+  richness?: number;
 }
 
 /** Primary latent z (64-d) for a run. */
 export async function generatePrimary(p: GenerateParams): Promise<Float32Array> {
-  const c = buildConditioning(p.e, p.q);
+  const c = buildConditioning(p.e, p.q, p.richness);
   const eta = etaFromDrift(p.drift);
   const rng = await createSeededRng(`${p.text}|${p.drift}|${p.seed}`);
   return ddimSampleLatent(CANONICAL_D0_LATENT, c, eta, rng, p.denoiser);
@@ -178,7 +197,7 @@ export async function generateDistribution(
   p: GenerateParams,
   alternates = ALTERNATE_COUNT,
 ): Promise<Float32Array[]> {
-  const c = buildConditioning(p.e, p.q);
+  const c = buildConditioning(p.e, p.q, p.richness);
   const eta = etaFromDrift(p.drift);
   const out: Float32Array[] = [];
   for (let a = 0; a <= alternates; a += 1) {
@@ -192,9 +211,10 @@ export async function generateDistribution(
 // ── Real ONNX adapter (lazy, ModelMissingError when absent) ───────────────────
 
 /**
- * Denoiser backed by denoiser-v1-int8.onnx. Inputs: x (64), t (1, normalised
- * 0..1 = timestep / T_total), c (400). Output: ε (64) — the c_emb conditioning
- * MLP (2×256 Swish+LayerNorm → 128) is part of this exported graph (spec §3.3).
+ * Denoiser backed by denoiser-v2-int8.onnx. Inputs: x (64), t (1, normalised
+ * 0..1 = timestep / T_total), c (401 = e + q + richness). Output: ε (64) — the
+ * c_emb conditioning MLP (2×256 Swish+LayerNorm → 128) is part of this
+ * exported graph (spec §3.3).
  */
 export class OnnxDenoiser implements Denoiser {
   private readonly session: LazySession<ort.InferenceSession>;

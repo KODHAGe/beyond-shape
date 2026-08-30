@@ -12,6 +12,7 @@ import { Embedder } from '../core/embedding';
 import { SensoryHead } from '../core/sensory';
 import { OnnxDenoiser, generateDistribution } from '../core/generator';
 import { Decoder } from '../core/sdfParams';
+import { structureRichness } from '../aesthetics/register';
 
 const log = document.querySelector('#log') as HTMLElement;
 const runButton = document.querySelector('#run') as HTMLButtonElement;
@@ -70,7 +71,8 @@ runButton.addEventListener('click', () => void (async () => {
     // 4 — denoiser: DDPM sampling → 4 latents
     a = mark();
     const denoiser = new OnnxDenoiser(manifest);
-    const zs = await generateDistribution({ text: 'the sea is calm tonight', e, q, drift: 0.4, seed: 42, denoiser });
+    const richness = structureRichness(await embedder.tokenCount('the sea is calm tonight'));
+    const zs = await generateDistribution({ text: 'the sea is calm tonight', e, q, drift: 0.4, seed: 42, denoiser, richness });
     emit('ok', `4. denoiser ✓ ${ms(a)} → ${zs.length} latents × ${zs[0]?.length ?? 0}-d${notePing()}`);
 
     // 5 — decoder: latent → SdfParams

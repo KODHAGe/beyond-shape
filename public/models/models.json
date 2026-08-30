@@ -1,8 +1,8 @@
 {
-  "version": "0.1.0-generated",
-  "slice": 1,
-  "generatedAt": "content-9dc33bc563772694",
-  "totalBytes": 23540740,
+  "version": "0.2.0-generated",
+  "slice": 2,
+  "generatedAt": "content-70ff1367d50c0269",
+  "totalBytes": 23542602,
   "artifacts": {
     "embedder": {
       "file": "models/embedder-all-minilm-l6-v2-int8.onnx",
@@ -24,15 +24,15 @@
       "dim": 16
     },
     "denoiser": {
-      "file": "models/denoiser-v1-int8.onnx",
-      "sha256": "e54ddf980d102faa2b471ac3b02fa4da138f06a5223c7df9e36b7b1835d7e9cd",
-      "sizeBytes": 564864,
+      "file": "models/denoiser-v2-int8.onnx",
+      "sha256": "f49d0a40f8f1dbdbf1c7d64d2d10f0b0575a973fb0a12fdbe3da361cc13efff2",
+      "sizeBytes": 566726,
       "dim": 64,
       "steps": 25
     },
     "decoder": {
       "file": "models/decoder-v1-int8.onnx",
-      "sha256": "d3e6be2347732e189570505640a7ddb49d39935ac3e087eaf1fe27ba45b3d4c7",
+      "sha256": "5194eb24b41281793048641d7ba5fab25f555d1d68bbf67cc5abcb60e10a8efb",
       "sizeBytes": 115937,
       "dim": 64
     },
@@ -89,8 +89,8 @@
     }
   ],
   "trainingSource": {
-    "seedForms": 8,
-    "generatedAt": "content-9dc33bc563772694",
+    "seedForms": 19,
+    "generatedAt": "content-70ff1367d50c0269",
     "anchors": [
       [
         1.0,
@@ -691,9 +691,9 @@
       "T": 1000,
       "num_ddim_steps": 25,
       "latent_dim": 64,
-      "cond_dim": 400,
+      "cond_dim": 401,
       "cond_emb": 128,
-      "lr": 0.001,
+      "lr": 0.0005,
       "batch": 64,
       "steps": 3000,
       "denoiser_param_budget": 3000000,
