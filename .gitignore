@@ -50,3 +50,5 @@ npm-debug.log*
 Thumbs.db
 .idea/
 .vscode/
+# Original thesis PDF — persisted elsewhere; text is committed as ORIGINAL-2019.md
+Beyond shape, 24.1.2019.pdf
