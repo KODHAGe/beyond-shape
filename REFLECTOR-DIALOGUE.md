@@ -176,3 +176,15 @@ a rich form from default parts (Concept guardrail: never fake an experience
 the machine didn't have). Decision recorded: enrich the generator
 conditioning with structure in Phase C; the alternative ("one insistence") was
 explicitly declined by the user.
+
+### Slice-2 outcome (2026-08-30)
+Shipped (commit `c431760`): 401-d conditioning with a dedicated richness
+channel into the denoiser body; a 19-seed structure-varied corpus whose rich
+readings carry multi-anchor centers; manifest 0.2.0. The decisive discovery on
+the way: the **DDIM latent-manifold clamp**. At t→T, ᾱ→0 amplified tiny ε
+errors into |z| of *hundreds* — far outside the decoder's trained manifold —
+so every live reading decoded to one hot (the underlying "marshmallow/
+repetitive" since Phase B, confirmed in the lab). Clamping predX0 to the
+trained |z|≲2 space (deterministic, mirrored in `scripts/verify_voices.py`)
+latches trajectories on-manifold: every reading now surfaces 4–5 live voices,
+and richness-follows-structure holds end to end.
