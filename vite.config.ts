@@ -46,6 +46,14 @@ export default defineConfig({
     target: 'es2022',
     outDir: 'dist',
     sourcemap: false,
+    rollupOptions: {
+      input: {
+        main: resolve('index.html'),
+        'probe-three': resolve('probe.html'),
+        'probe-pipeline': resolve('probe-pipeline.html'),
+        lab: resolve('lab.html'),
+      },
+    },
   },
   test: {
     environment: 'node',

@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>aesthetic lab · beyond shape</title>
+    <meta name="description" content="Design tool: decide the register the machine's first forms speak. Two coherence cards — clay and collision — on the same reading, turned by one spindle." />
+    <style>
+      :root { color-scheme: light; --ink: #3a3a42; --muted: #877f8c; --accent: #ff9ec7; }
+      * { box-sizing: border-box; }
+      body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        background: linear-gradient(180deg, #fff6ec 0%, #ffeef4 60%, #f2ecff 100%); color: var(--ink); }
+      .lab-root { max-width: 1100px; margin: 0 auto; padding: 28px 20px 80px; }
+      h1 { margin: 0 0 2px; font-size: 1.9rem; letter-spacing: -0.02em; }
+      .lab-sub { margin: 0 0 18px; color: var(--muted); }
+      .lab-controls { display: flex; flex-wrap: wrap; gap: 18px; align-items: center;
+        padding: 14px 16px; border-radius: 14px; background: rgba(255,255,255,0.65);
+        border: 1px solid rgba(255,158,199,0.35); margin-bottom: 22px; }
+      .lab-controls label { display: grid; gap: 4px; font-size: 0.9rem; }
+      .lab-controls select, .lab-controls input[type='range'], .lab-controls input[type='text'], .lab-controls button { font: inherit; }
+      .lab-read-row { display: flex; gap: 8px; }
+      .lab-read-row input[type='text'] { flex: 1; min-width: 240px; padding: 8px 10px; border-radius: 8px;
+        border: 1px solid #e6d8e6; background: #fffdf9; }
+      .lab-read-row button { padding: 8px 14px; border: 0; border-radius: 999px; background: var(--accent); color: #fff; font-weight: 600; cursor: pointer; }
+      .lab-read-row button:disabled { opacity: 0.55; cursor: progress; }
+      .lab-read-row label, .lab-check { display: inline-flex; align-items: center; gap: 4px; font-size: 0.8rem; color: var(--muted); }
+      .lab-check { white-space: nowrap; }
+      .lab-drift { width: 220px; }
+      #lab-richness { width: 130px; }
+      .lab-readout { font-variant-numeric: tabular-nums; color: var(--muted); }
+      .lab-sentence { margin: -10px 0 16px; color: var(--ink); font-style: italic;
+        font-size: 1.05rem; min-height: 1.4em; }
+      .lab-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(460px, 1fr)); gap: 22px; }
+      .lab-card { border-radius: 18px; padding: 16px; background: rgba(255,255,255,0.6);
+        border: 1px solid #f0dfea; box-shadow: 0 10px 34px rgba(255,158,199,0.14); position: relative; }
+      .lab-card header { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+      .lab-card h2 { margin: 0; font-size: 1.35rem; }
+      .lab-card .blurb { color: var(--muted); font-size: 0.85rem; }
+      .lab-main { position: relative; height: 360px; border-radius: 12px; overflow: hidden; background: #fff; }
+      .lab-main canvas { display: block; width: 100%; height: 100%; }
+      .lab-spectrum { margin-top: 12px; }
+      .lab-spectrum-label { color: var(--muted); font-size: 0.8rem; margin: 0 0 6px; }
+      .lab-stations { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+      .lab-station { position: relative; aspect-ratio: 1; border-radius: 10px; overflow: hidden;
+        background: #fff; border: 1px solid #eee0ea; }
+      .lab-station canvas { display: block; width: 100%; height: 100%; }
+      .lab-station span { position: absolute; left: 6px; bottom: 4px; font-size: 0.7rem;
+        color: var(--muted); background: rgba(255,255,255,0.7); padding: 0 6px; border-radius: 6px; }
+      .lab-note { margin-top: 16px; color: var(--muted); font-size: 0.85rem; }
+      .lab-missing { padding: 40px; text-align: center; color: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <div class="lab-root">
+      <h1>aesthetic lab</h1>
+      <p class="lab-sub">the same reading, two ways of inhabiting the edge — turn the spindle.</p>
+      <div class="lab-controls">
+        <label>sentence
+          <select id="lab-sentence"></select>
+        </label>
+        <label>drift — consensus ⇄ edge
+          <span><input class="lab-drift" id="lab-drift" type="range" min="0" max="1" step="0.01" value="0.6" />
+          <span class="lab-readout" id="lab-drift-readout">0.60</span></span>
+        </label>
+        <label>structure — richness follows length
+          <span class="lab-read-row">
+            <input id="lab-richness" type="range" min="0" max="1" step="0.01" value="0.5" disabled />
+            <span class="lab-readout" id="lab-richness-readout">auto</span>
+            <span class="lab-check"><input id="lab-richness-auto" type="checkbox" checked /> auto</span>
+          </span>
+        </label>
+        <label>or read your own
+          <span class="lab-read-row"><input id="lab-custom" type="text" placeholder="a sentence of your own…" />
+          <button id="lab-read" type="button">read</button></span>
+        </label>
+      </div>
+      <p class="lab-sentence" id="lab-sentence-text"></p>
+      <div class="lab-cards">
+        <section class="lab-card" data-register="clay">
+          <header><h2>clay</h2><span class="blurb">welded · matte · restful</span></header>
+          <div class="lab-main"></div>
+          <div class="lab-spectrum"><p class="lab-spectrum-label">the same reading, turned</p>
+            <div class="lab-stations"></div></div>
+        </section>
+        <section class="lab-card" data-register="collision">
+          <header><h2>collision</h2><span class="blurb">seamed · glossy · teetering</span></header>
+          <div class="lab-main"></div>
+          <div class="lab-spectrum"><p class="lab-spectrum-label">the same reading, turned</p>
+            <div class="lab-stations"></div></div>
+        </section>
+      </div>
+      <p class="lab-note">every part of a form is the reading's own decoded parameters, retuned — no gesture libraries, no hidden meaning. drag any form to turn it.</p>
+    </div>
+    <script type="module" src="/src/lab/lab.ts"></script>
+  </body>
+</html>

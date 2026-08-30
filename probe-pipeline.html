@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>probe · model pipeline</title>
+    <meta name="description" content="STANDS ALONE from the renderer: run embedder → sensory → denoiser → decoder in this browser and report every stage with timings and errors." />
+    <style>
+      :root { color-scheme: light; }
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: 24px; font-family: system-ui, sans-serif; color: #3a3a42; background: #fffaf3; }
+      h1 { font-size: 20px; }
+      button { font: inherit; padding: 10px 18px; border: 0; border-radius: 999px; background: #ff9ec7; color: #fff; font-weight: 600; cursor: pointer; }
+      button:disabled { opacity: 0.55; cursor: progress; }
+      #log { margin-top: 18px; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .s { margin: 3px 0; white-space: pre-wrap; word-break: break-word; }
+      .ok { color: #2e7d4f; }
+      .err { color: #b3404a; }
+      .dim { color: #877f8c; }
+      .t { color: #b3404a; font-style: italic; }
+      .ping { color: #877f8c; }
+    </style>
+  </head>
+  <body>
+    <h1>model pipeline probe (standalone — renderer NOT involved)</h1>
+    <p>Loads the real models and runs embedder → sensory → denoiser → decoder, reporting each stage.</p>
+    <button id="run">run pipeline</button>
+    <div id="log"></div>
+    <script type="module" src="/src/probe/pipeline-probe.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>probe · three.js renderer</title>
+    <meta name="description" content="STANDS ALONE from the app: does three.js render the marched form in this browser? Live status panel." />
+    <style>
+      :root { color-scheme: light; }
+      * { box-sizing: border-box; }
+      body { margin: 0; font-family: system-ui, sans-serif; }
+      #view { position: fixed; inset: 0; }
+      #view canvas { display: block; width: 100%; height: 100%; }
+      #panel {
+        position: fixed; top: 10px; left: 10px; z-index: 9;
+        width: min(430px, calc(100vw - 20px));
+        max-height: calc(100vh - 20px); overflow: auto;
+        padding: 12px 14px; border-radius: 12px;
+        background: rgba(255, 255, 255, 0.9);
+        border: 1px solid #f0dfea; box-shadow: 0 8px 30px rgba(0,0,0,0.15);
+        font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: #3a3a42;
+      }
+      #panel h1 { font-size: 14px; margin: 0 0 8px; }
+      .s { margin: 3px 0; white-space: pre-wrap; word-break: break-word; }
+      .ok { color: #2e7d4f; }
+      .err { color: #b3404a; }
+      .dim { color: #877f8c; }
+      #fps { position: fixed; right: 12px; top: 10px; z-index: 9; font: 12px ui-monospace, monospace; color: #3a3a42; background: rgba(255,255,255,0.85); padding: 6px 10px; border-radius: 8px; border: 1px solid #f0dfea; }
+    </style>
+  </head>
+  <body>
+    <div id="view"></div>
+    <div id="fps">waiting…</div>
+    <div id="panel"><h1>three.js render probe (standalone — the app is NOT involved)</h1></div>
+    <script type="module" src="/src/probe/three-probe.ts"></script>
+  </body>
+</html>
