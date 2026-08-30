@@ -417,7 +417,11 @@ export function marchCubes(
           const b = edgeVertexFor(e1);
           const c = edgeVertexFor(e2);
           if (a === b || b === c || a === c) continue; // degenerate — reject
-          ind.push(a, b, c);
+          // Winding: a→c→b keeps the triangle outward-facing — i.e. its
+          // derived normal aligns with the SDF's outward field gradient
+          // (asserted by tests/winding.test.ts). three.js FrontSide shading
+          // and correct culling depend on this orientation.
+          ind.push(a, c, b);
         }
 
         function edgeVertexFor(e: number): number {

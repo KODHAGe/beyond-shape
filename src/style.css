@@ -96,12 +96,46 @@ body {
   overflow: hidden;
   background: #fff;
   box-shadow: 0 10px 40px rgba(255, 158, 199, 0.18);
+  position: relative;
 }
 
 .bs-viewport canvas {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+/* "drag to turn" affordance — shared by the WebGL and software-3D tiers. */
+.bs-hint {
+  position: absolute;
+  inset: auto 0 14px;
+  margin: 0 auto;
+  width: fit-content;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(255, 158, 199, 0.4);
+  color: var(--muted);
+  font-size: 0.8rem;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 0.8s ease;
+  z-index: 2;
+}
+
+.bs-hint.bs-hint-seen {
+  opacity: 0;
+}
+
+/* Orbit cursors (both tiers use the same drag grammar). */
+/* Orbit cursors (both tiers use the same drag grammar). */
+.bs-viewport canvas,
+.bs-alternate-cell canvas {
+  cursor: grab;
+}
+
+canvas.bs-dragging {
+  cursor: grabbing;
 }
 
 .bs-progress {
@@ -145,11 +179,19 @@ body {
 }
 
 .bs-alternate-cell {
+  position: relative;
   width: 100%;
   aspect-ratio: 1;
   border-radius: 12px;
   background: #fff9ef;
   border: 1px solid #f0dfea;
+  overflow: hidden;
+}
+
+.bs-alternate-cell canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .bs-marginalia {

@@ -12,6 +12,7 @@ import { SeededRng } from '../core/seededRng';
 import { sampleField } from '../core/sdfField';
 import { marchCubes, laplacianSmooth } from './marchingCubes';
 import { buildLighting, gradientBackground, paletteFromSdf } from './lighting';
+import { attachTurnHint } from './input';
 
 const CAMERA_FOV = 45;
 
@@ -103,10 +104,12 @@ export function createScene(container: HTMLElement, seed: number, sdf: SdfParams
 
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.target.set(...camPose.target);
-  controls.enableDamping = true;
-  controls.dampingFactor = 0.08;
+  controls.enableDamping = false; // no idle loop here — drags repaint via 'change'
   controls.autoRotate = false; // idle animation opt-in, default OFF (FR-10)
+  controls.enablePan = false; // the form stays centred — you turn it, you don't park it
   controls.update();
+
+  const turnHint = attachTurnHint(container, renderer.domElement);
 
   const lightingRng = new SeededRng(seedBytes(seed ^ 0x5f3759df));
   const lighting = buildLighting(scene, renderer, lightingRng);
@@ -114,6 +117,40 @@ export function createScene(container: HTMLElement, seed: number, sdf: SdfParams
   gradientBackground(scene, palette.backgroundStops);
 
   let mesh: THREE.Mesh | null = null;
+  let geometry: THREE.BufferGeometry | null = null;
+
+  function renderScene(): void {
+    // Render ONLY — not controls.update(). OrbitControls settles the camera
+    // and dispatches 'change' before our listener runs; re-entering update()
+    // from a change listener recurses (three snapshots _lastPosition AFTER
+    // dispatchEvent, so the next update sees a "moved" camera → re-dispatch →
+    // RangeError: Maximum call stack size exceeded).
+    renderer.render(scene, camera);
+  }
+
+  /**
+   * Frame the object, not a guess: keep the seeded azimuth/elevation (FR-10
+   * determinism for the reading) but pull the distance out to the mesh's
+   * bounding sphere, and target its centre — so any decoded form, however
+   * large or lopsided, sits centred and in shot.
+   */
+  function fitCameraToMesh(): void {
+    if (!geometry) return;
+    geometry.computeBoundingSphere();
+    const sphere = geometry.boundingSphere;
+    if (!sphere || sphere.radius <= 0) return;
+    const dir = new THREE.Vector3().subVectors(camera.position, controls.target);
+    if (dir.lengthSq() < 1e-9) dir.set(0, 1, 0);
+    dir.normalize();
+    const distance = Math.max(2.6, sphere.radius * 2.85);
+    const centre = sphere.center;
+    controls.target.copy(centre);
+    camera.position.copy(centre).addScaledVector(dir, distance);
+    controls.minDistance = Math.max(1.2, distance * 0.5);
+    controls.maxDistance = distance * 4;
+    camera.lookAt(centre);
+    controls.update();
+  }
 
   const handle: SceneHandle = {
     renderer,
@@ -139,7 +176,7 @@ export function createScene(container: HTMLElement, seed: number, sdf: SdfParams
       const field = sampleField(next);
       const marched = marchCubes(field, 48, 48, 48, -1.5, 1.5);
       const smooth = laplacianSmooth(marched.positions, marched.indices, 1);
-      const geometry = new THREE.BufferGeometry();
+      geometry = new THREE.BufferGeometry();
       geometry.setAttribute('position', new THREE.BufferAttribute(smooth, 3));
       geometry.setIndex(new THREE.BufferAttribute(marched.indices, 1));
       geometry.computeVertexNormals(); // spec §3.4
@@ -147,18 +184,21 @@ export function createScene(container: HTMLElement, seed: number, sdf: SdfParams
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       scene.add(mesh);
+      fitCameraToMesh();
     },
     resize(width: number, height: number) {
       camera.aspect = width / Math.max(height, 1);
       camera.updateProjectionMatrix();
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
       renderer.setSize(width, height);
+      renderScene();
     },
     render() {
-      controls.update();
-      renderer.render(scene, camera);
+      renderScene();
     },
     dispose() {
       controls.dispose();
+      turnHint.dispose();
       renderer.dispose();
       if (mesh) {
         scene.remove(mesh);
@@ -169,6 +209,10 @@ export function createScene(container: HTMLElement, seed: number, sdf: SdfParams
       renderer.domElement.remove();
     },
   };
+
+  // Repaint live while the user drags the form (no idle loop — FR-10 keeps
+  // auto-rotation off; the change event carries the interaction instead).
+  controls.addEventListener('change', renderScene);
 
   handle.setSdf(sdf);
   return handle;
@@ -214,6 +258,108 @@ export function createWebglRenderer(container: HTMLElement): WebglRendererSurfac
     dispose() {
       handle?.dispose();
       handle = null;
+    },
+  };
+}
+
+// ── Alternate-cell scene (the "also near" strip shares the 3D preview) ──────
+
+export interface CellSceneHandle {
+  resize(width: number, height: number): void;
+  dispose(): void;
+}
+
+export interface CellSceneOptions {
+  /** Presence multiplier: >1 pulls the camera back (small-in-frame), <1 tightens. */
+  presence?: number;
+}
+
+/**
+ * A lightweight three scene for one alternate-cell: the same mesh + material
+ * grammar as the primary, but a FLAT generated background and no PMREM env —
+ * three small contexts must stay cheap. Orbit-controlled (turn), never
+ * pannable/zoomable, so a cell reads as "the same form, another reading".
+ */
+export function createCellScene(container: HTMLElement, seed: number, sdf: SdfParams, opts?: CellSceneOptions): CellSceneHandle {
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.02;
+  container.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  // Flat palette wash (no gradient texture needed at cell scale).
+  const palette = paletteFromSdf(sdf.material.hue, sdf.material.saturation, sdf.material.lightness);
+  scene.background = new THREE.Color(palette.backgroundStops[0]);
+
+  const camPose = cameraFromSeed(seed);
+  const camera = new THREE.PerspectiveCamera(CAMERA_FOV, 1, 0.1, 100);
+  camera.position.set(...camPose.pos);
+  camera.lookAt(...camPose.target);
+
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.target.set(...camPose.target);
+  controls.enableDamping = false;
+  controls.enableZoom = false;
+  controls.enablePan = false;
+  controls.autoRotate = false;
+  controls.update();
+
+  // Fixed key/fill/rim (no environment, no shadow maps — cheap cells).
+  const key = new THREE.DirectionalLight('#FFF3E0', 2.2);
+  key.position.set(4, 6, 3);
+  const fill = new THREE.HemisphereLight('#FFE8F0', '#FFF4E0', 0.55);
+  const rim = new THREE.DirectionalLight('#CFE8FF', 1.1);
+  rim.position.set(-4, 2, -5);
+  scene.add(key, fill, rim);
+
+  const field = sampleField(sdf);
+  const marched = marchCubes(field, 48, 48, 48, -1.5, 1.5);
+  const smooth = laplacianSmooth(marched.positions, marched.indices, 1);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(smooth, 3));
+  geometry.setIndex(new THREE.BufferAttribute(marched.indices, 1));
+  geometry.computeVertexNormals();
+  const mesh = new THREE.Mesh(geometry, physicalMaterial(sdf));
+  scene.add(mesh);
+
+  // Frame the actual form (bounding sphere) so any cell centres its object.
+  geometry.computeBoundingSphere();
+  const sphere = geometry.boundingSphere;
+  if (sphere && sphere.radius > 0) {
+    const dir = new THREE.Vector3().subVectors(camera.position, controls.target).normalize();
+    const presence = opts?.presence ?? 1;
+    const distance = Math.max(2.4, sphere.radius * 3.0 * presence);
+    controls.target.copy(sphere.center);
+    camera.position.copy(sphere.center).addScaledVector(dir, distance);
+    camera.lookAt(sphere.center);
+    controls.update();
+  }
+
+  function draw(): void {
+    // Render only — never controls.update() from the 'change' listener (the
+    // same re-entrancy trap as createScene: update() re-dispatches 'change'
+    // for a stale camera snapshot and recurses to a stack overflow).
+    renderer.render(scene, camera);
+  }
+  controls.addEventListener('change', draw);
+  draw();
+
+  return {
+    resize(width: number, height: number) {
+      camera.aspect = width / Math.max(height, 1);
+      camera.updateProjectionMatrix();
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.setSize(width, height);
+      draw();
+    },
+    dispose() {
+      controls.removeEventListener('change', draw);
+      controls.dispose();
+      renderer.dispose();
+      geometry.dispose();
+      (mesh.material as THREE.Material).dispose();
+      renderer.domElement.remove();
     },
   };
 }

@@ -1,15 +1,22 @@
 /**
  * Render path selection (spec §3.4 / QR-2): WebGL2 → Three.js scene; absent →
- * Canvas-2D preview renderer (a 2D shaded/pastel projection of the DECODED
- * SdfParams — same parameter pipeline, untouched). The Three.js path is
- * dynamically imported so the fallback never pays for the WebGL bundle.
+ * Canvas-2D SOFTWARE 3D PREVIEW (projection.ts) — the same decoded SdfParams,
+ * marched to the same mesh three.js would render, but painted with a
+ * per-face painter and ORBIT INPUT so the form can be turned in any browser.
+ * The Three.js path is dynamically imported so the fallback never pays for the
+ * WebGL bundle, and the painter never pays for three.
  *
  * RenderStateWire is computed purely (computeRenderState in scene.ts) so the
  * run record carries a deterministic wire state regardless of the render path.
  */
 
 import type { RunRecord, SdfParams } from '../types';
-import { SeededRng } from '../core/seededRng';
+import {
+  attachOrbit,
+  attachTurnHint,
+  applyOrbitDelta,
+  type ViewAngles,
+} from './input';
 
 export type RenderKind = 'webgl' | 'canvas2d';
 
@@ -45,7 +52,8 @@ export interface AppRenderer {
   dispose(): void;
 }
 
-/** WebGL2 capability probe (deterministic, no side effects on real canvases). */
+/** WebGL2 capability probe (three.js r163+ requires WebGL2; a WebGL1-only
+ *  browser gets the software-3D tier, not a half-broken renderer). */
 export function detectWebGL2(): boolean {
   if (typeof document === 'undefined') return false;
   try {
@@ -65,17 +73,15 @@ export async function createRenderer(container: HTMLElement): Promise<AppRendere
       const { createWebglRenderer } = await import('./scene');
       return await createWebglRenderer(container);
     } catch (err) {
-      console.warn('WebGL2 renderer failed to start — falling back to canvas-2D:', err);
+      console.warn('WebGL2 renderer failed to start — falling back to the software-3D preview:', err);
     }
   }
   return createCanvas2dRenderer(container);
 }
 
-// ── Canvas-2D fallback ────────────────────────────────────────────────────────
-
-function bisect<T extends { z: number }>(arr: T[]): T[] {
-  return arr.slice().sort((a, b) => b.z - a.z);
-}
+// ── Canvas-2D software-3D tier ───────────────────────────────────────────────
+// One marched mesh per reading (cached by the painter), repainted on orbit
+// drags — reading the same "drag to turn" grammar as the WebGL tier.
 
 function createCanvas2dRenderer(container: HTMLElement): AppRenderer {
   const canvas = document.createElement('canvas');
@@ -84,104 +90,74 @@ function createCanvas2dRenderer(container: HTMLElement): AppRenderer {
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Canvas-2D unavailable — cannot render');
 
+  type ProjectionModule = typeof import('./projection');
+  let proj: ProjectionModule | null = null;
   let width = 640;
   let height = 480;
+  let sdf: SdfParams | null = null;
+  let view: ViewAngles = { yaw: 0, pitch: 0 };
+  let frame = 0;
 
-  async function draw(sdf: SdfParams, drawSeed: number): Promise<void> {
+  async function ensureProj(): Promise<ProjectionModule> {
+    if (proj) return proj;
+    proj = await import('./projection');
+    return proj;
+  }
+
+  function paint(): void {
+    if (!proj || !sdf || !ctx) return;
+    const mesh = proj.getSolidMesh(sdf);
+    if (mesh.indices.length === 0) return;
     canvas.width = width;
     canvas.height = height;
-    const g = ctx;
-    if (!g) return;
-    // Pastel gradient backdrop tinted by the reading's hue.
-    const hue = (((sdf.material.hue % 1) + 1) % 1);
-    const gradBack = g.createLinearGradient(0, 0, 0, height);
-    gradBack.addColorStop(0, `hsl(${hue * 360} 60% 96%)`);
-    gradBack.addColorStop(1, `hsl(${(hue + 0.05) * 360} 50% 90%)`);
-    g.fillStyle = gradBack;
-    g.fillRect(0, 0, width, height);
-
-    const n = 48;
-    const { sampleField } = await import('../core/sdfField');
-    const field = sampleField(sdf, n, -1.5, 1.5);
-    const { marchCubes } = await import('./marchingCubes');
-    const mesh = marchCubes(field, n, n, n, -1.5, 1.5);
-    if (mesh.indices.length === 0) return;
-    const vl = mesh.positions;
-    const il = mesh.indices;
-
-    // Simple camera: yaw from drawSeed, pitch from pose.
-    const rng = new SeededRng(
-      new Uint8Array(32).fill(0).map((_, i) => (drawSeed * (i + 1)) & 0xff),
-    );
-    const yaw = rng.nextFloat() * Math.PI * 2;
-    const cosY = Math.cos(yaw);
-    const sinY = Math.sin(yaw);
-    const cosP = Math.cos(sdf.pose.pitch ?? 0);
-    const sinP = Math.sin(sdf.pose.pitch ?? 0);
-    const scale = Math.min(width, height) / 3.2;
-
-    const tris: { z: number; pts: [number, number][]; shade: number }[] = [];
-    for (let t = 0; t + 2 < il.length; t += 3) {
-      let zAvg = 0;
-      const pts: [number, number][] = [];
-      const a = il[t]! * 3;
-      const b = il[t + 1]! * 3;
-      const c = il[t + 2]! * 3;
-      const verts = [a, b, c];
-      for (const v of verts) {
-        const x = vl[v] ?? 0;
-        const y2 = vl[v + 1] ?? 0;
-        const z = vl[v + 2] ?? 0;
-        // rotate yaw (about Y) then pitch (about X)
-        const rx = x * cosY + z * sinY;
-        const rz = -x * sinY + z * cosY;
-        const ry = y2 * cosP - rz * sinP;
-        const rz2 = y2 * sinP + rz * cosP;
-        const px = width / 2 + rx * scale;
-        const py = height / 2 - ry * scale;
-        pts.push([px, py]);
-        zAvg += rz2;
-      }
-      zAvg /= 3;
-      // lambert-ish shading proxy: faces higher on screen read lighter
-      // (light from above), edges read darker — a pastel field, not flat.
-      const midY = (pts[0]![1] + pts[1]![1] + pts[2]![1]) / 3;
-      const shade =
-        0.55 +
-        0.45 * Math.min(1, Math.max(0, 0.5 + (midY - height / 2) / (height * 0.6)));
-      tris.push({ z: zAvg, pts, shade });
-    }
-
-    const sorted = bisect(tris);
-    const baseSat = 0.25 + sdf.material.saturation * 0.5;
-    const baseLig = 0.72 + sdf.material.lightness * 0.25;
-    for (const tr of sorted) {
-      const fill = `hsl(${hue * 360} ${Math.round(baseSat * 100)}% ${Math.round(
-        baseLig * tr.shade * 100,
-      )}%)`;
-      g.fillStyle = fill;
-      g.beginPath();
-      g.moveTo(tr.pts[0]![0], tr.pts[0]![1]);
-      g.lineTo(tr.pts[1]![0], tr.pts[1]![1]);
-      g.lineTo(tr.pts[2]![0], tr.pts[2]![1]);
-      g.closePath();
-      g.fill();
-    }
+    proj.paintSolid(ctx, mesh, sdf, view, { width, height });
   }
+
+  function paintSoon(): void {
+    if (frame !== 0) return;
+    frame = requestAnimationFrame(() => {
+      frame = 0;
+      paint();
+    });
+  }
+
+  async function draw(next: SdfParams, drawSeed: number): Promise<void> {
+    const p = await ensureProj();
+    sdf = next;
+    const mesh = p.getSolidMesh(next);
+    if (mesh.indices.length === 0) {
+      sdf = null;
+      return;
+    }
+    view = p.initialView(drawSeed, next);
+    paint();
+  }
+
+  // Orbit input (shared grammar with the WebGL tier — input.ts).
+  const orbit = attachOrbit(canvas, (dYaw, dPitch) => {
+    if (!sdf) return;
+    view = applyOrbitDelta(view, dYaw, dPitch);
+    paintSoon();
+  });
+  const hint = attachTurnHint(container, canvas);
 
   return {
     kind: 'canvas2d',
     show(run: RunRecord) {
       void draw(run.sdfParams, run.seed);
     },
-    showSdf(sdf: SdfParams, drawSeed: number) {
-      void draw(sdf, drawSeed);
+    showSdf(s: SdfParams, drawSeed: number) {
+      void draw(s, drawSeed);
     },
     resize(w: number, _h: number) {
       width = Math.max(320, w);
       height = Math.max(240, _h);
+      if (sdf) paintSoon();
     },
     dispose() {
+      if (frame !== 0) cancelAnimationFrame(frame);
+      orbit.dispose();
+      hint.dispose();
       canvas.remove();
     },
   };
