@@ -11,23 +11,29 @@
  * no text leaves the device (FR-5).
  */
 
-import type { ModelManifest, RunRecord, SeedForm } from '../types';
+import type { ModelManifest, RunRecord, SdfParams, SeedForm } from '../types';
 import { ModelMissingError } from '../types';
 import { fetchManifest } from '../core/models';
 import { Embedder } from '../core/embedding';
 import { SensoryHead } from '../core/sensory';
 import { OnnxDenoiser, generateDistribution } from '../core/generator';
 import { Decoder } from '../core/sdfParams';
-import { createRenderer, detectWebGL2, type AppRenderer } from '../render/renderer';
+import { createRenderer, type AppRenderer } from '../render/renderer';
 import { computeRenderState } from '../render/scene';
+import { retune, structureRichness } from '../aesthetics/register';
+import type { RegisterKind } from '../aesthetics/register';
 import { RunStore } from '../state/runStore';
 import { fingerprint as fingerprintOf } from '../lib/fingerprint';
 import { Progress } from './progress';
 import { createMarginaliaPanel, computeMarginality } from './marginaliaPanel';
-import { createAlternatesStrip } from './alternatesStrip';
+import { createAlternatesStrip, type AlternateCell } from './alternatesStrip';
 
 const SEED_FORMS_URL = 'seed-forms.json';
-const DRIFT_DEFAULT = 0.4;
+// D-B register verdict (aesthetic lab, 2026-08-30): collision — seamed,
+// glossy, teetering; the drift knob is the consensus⇄edge spindle (C2, FR-8).
+// Clay stays defined in REGISTERS for the future register toggle.
+const REGISTER: RegisterKind = 'collision';
+const DRIFT_DEFAULT = 0.55;
 
 export interface AppHandle {
   dispose(): void;
@@ -122,6 +128,26 @@ export async function mountApp(root: HTMLElement): Promise<AppHandle> {
   viewport.dataset['renderMode'] = renderer.kind; // LR-6: tier observable in tests
   progress.setStage('renderer', 'done');
 
+  // The renderer must actually SIZE to its container (LR-6 realism): the old
+  // path left the canvas at the 640×480 default and CSS-stretched it — blurry
+  // on big screens, wrong aspect on narrow ones. Bind live to the viewport.
+  function bindViewportSize(target: HTMLElement, apply: (w: number, h: number) => void): () => void {
+    const read = (): void => {
+      const r = target.getBoundingClientRect();
+      apply(Math.max(1, Math.round(r.width)), Math.max(1, Math.round(r.height)));
+    };
+    if (typeof ResizeObserver !== 'undefined') {
+      const ro = new ResizeObserver(read);
+      ro.observe(target);
+      read();
+      return () => ro.disconnect();
+    }
+    read();
+    window.addEventListener('resize', read);
+    return () => window.removeEventListener('resize', read);
+  }
+  const unbindViewportSize = bindViewportSize(viewport, (w, h) => renderer.resize(w, h));
+
   const store = new RunStore();
   const marginalia = createMarginaliaPanel(marginaliaMount);
   const alternates = createAlternatesStrip(alternatesMount);
@@ -171,6 +197,9 @@ export async function mountApp(root: HTMLElement): Promise<AppHandle> {
 
       const e = await embedder.embed(text);
       progress.setStage('models', 'done');
+      // Structure signal (Phase C §3): "richness follows structure" — derived
+      // on-device from WordPiece ids; deterministic, never transmitted (FR-5).
+      const richness = structureRichness(await embedder.tokenCount(text));
       const q = await sensory.forward(e);
       const zs = await generateDistribution({
         text,
@@ -182,10 +211,23 @@ export async function mountApp(root: HTMLElement): Promise<AppHandle> {
       });
       const z = zs[0] as Float32Array;
       const zAlternates = zs.slice(1);
-      const sdfParams = await decoder.decode(z);
+      // The register carries the decoded reading (collision, D-B verdict):
+      // `sdfParams` is the RENDERED form; the raw decode lives in `z`.
+      const sdfParams = retune(await decoder.decode(z), REGISTER, driftValue, richness);
+      // Decode each alternate so the strip can render real forms (FR-9). A
+      // failed decode keeps an honest "sketch" cell — never a broken run.
+      const cells: AlternateCell[] = [];
+      for (const za of zAlternates.slice(0, 3)) {
+        let sdf: SdfParams | null = null;
+        try {
+          sdf = retune(await decoder.decode(za), REGISTER, driftValue, richness);
+        } catch {
+          sdf = null;
+        }
+        cells.push({ seed: seedValue + 1 + cells.length, sdf });
+      }
       const fp = await fingerprintOf(text, driftValue, seedValue);
       const renderState = computeRenderState(seedValue, sdfParams);
-      const webgl = detectWebGL2();
 
       const run: RunRecord = {
         id: runId,
@@ -200,11 +242,11 @@ export async function mountApp(root: HTMLElement): Promise<AppHandle> {
         seed: seedValue,
         fingerprint: fp,
         createdAt: Date.now(),
-        webgl,
+        webgl: renderer.kind === 'webgl',
       };
       store.add(run);
       renderer.show(run);
-      alternates.render(zAlternates, [seedValue + 1, seedValue + 2, seedValue + 3], seedValue);
+      alternates.render(cells, renderer.kind);
 
       const notes = computeMarginality(e, z, seedForms);
       marginalia.render(run, notes, seedForms);
@@ -247,6 +289,7 @@ export async function mountApp(root: HTMLElement): Promise<AppHandle> {
 
   return {
     dispose() {
+      unbindViewportSize();
       renderer.dispose();
       root.replaceChildren();
     },

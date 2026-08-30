@@ -45,18 +45,32 @@ export class Embedder {
     return this.manifestRef.artifacts.embedder.dim ?? EMBED_DIM;
   }
 
+  private async ensureTokenizer(): Promise<BertTokenizer> {
+    if (!tokenizerPromise) {
+      tokenizerPromise = BertTokenizer.fromFile(
+        requireModelFile(this.manifestRef.artifacts.tokenizer, 'tokenizer'),
+      );
+    }
+    return tokenizerPromise;
+  }
+
+  /**
+   * Token count → the structure signal ("richness follows structure",
+   * Implementation Spec Phase C §3). On-device WordPiece ids; deterministic
+   * (FR-10); no text leaves the device (FR-5).
+   */
+  async tokenCount(text: string): Promise<number> {
+    const tokenizer = await this.ensureTokenizer();
+    return tokenizer.tokenize(text, this.maxTokens()).ids.length;
+  }
+
   /**
    * text → e (384-d, L2-normalised mean-pooled last hidden state).
    * Truncates over maxTokens with a warning (spec §3.2).
    */
   async embed(text: string): Promise<Float32Array> {
     const maxTokens = this.maxTokens();
-    if (!tokenizerPromise) {
-      tokenizerPromise = BertTokenizer.fromFile(
-        requireModelFile(this.manifestRef.artifacts.tokenizer, 'tokenizer'),
-      );
-    }
-    const tokenizer = await tokenizerPromise;
+    const tokenizer = await this.ensureTokenizer();
     const { ids, truncated } = tokenizer.tokenize(text, maxTokens);
     if (truncated) console.warn(`embedder: truncated to ${maxTokens} tokens`);
     const seqLen = ids.length;
