@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   decodeRawToSdfParams,
+  decodeBlendMode,
+  BLEND_HARDNESS_THRESHOLD,
   BLEND_RADIUS_RANGE,
   PRIMITIVE_COUNT,
   type DecoderRaw,
@@ -81,5 +83,26 @@ describe('sdfParams decode + clamp (spec §4)', () => {
 
   it('rejects a wrong weight count', () => {
     expect(() => decodeRawToSdfParams(raw({ weights: [0, 0, 0] }))).toThrow(RangeError);
+  });
+});
+
+describe('blendMode decode (item-1 hardness head, 0.2.1)', () => {
+  it('defaults a legacy (no hardness) decode to soft', () => {
+    expect(decodeRawToSdfParams(raw()).blendMode).toBe('soft');
+    expect(decodeBlendMode(undefined)).toBe('soft');
+  });
+
+  it('maps hardness ≥ 0.5 → cut, below → soft (arbitrary per-anchor convention)', () => {
+    expect(decodeBlendMode(BLEND_HARDNESS_THRESHOLD)).toBe('cut');
+    expect(decodeBlendMode(0.9)).toBe('cut');
+    expect(decodeBlendMode(1)).toBe('cut');
+    expect(decodeBlendMode(0.49)).toBe('soft');
+    expect(decodeBlendMode(0)).toBe('soft');
+    expect(decodeBlendMode(-1)).toBe('soft');
+  });
+
+  it('decodes the hardness output into SdfParams.blendMode', () => {
+    expect(decodeRawToSdfParams(raw({ hardness: 1 })).blendMode).toBe('cut');
+    expect(decodeRawToSdfParams(raw({ hardness: 0.2 })).blendMode).toBe('soft');
   });
 });

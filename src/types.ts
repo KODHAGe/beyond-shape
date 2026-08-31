@@ -27,6 +27,11 @@ export interface RunRecord {
 export interface SdfParams {
   weights: number[]; // 8 softmax smooth-min weights
   blendRadius: number; // 0.05..0.5
+  /** Surface mode of this reading: 'soft' (FR-7 smooth morph) or 'cut' (the
+   *  original's overlapping solids). A DECODED variable (0.2.1): an arbitrary
+   *  per-anchor convention, never semantic. Absent = legacy/0.2.0 reads,
+   *  resolved to 'soft' at decode. */
+  blendMode?: 'soft' | 'cut';
   parts: {
     scale: [number, number, number];
     offset: [number, number, number];

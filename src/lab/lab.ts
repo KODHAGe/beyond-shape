@@ -58,6 +58,16 @@ interface LabSeed {
   sdfParams: SdfParams;
 }
 
+/** Lab blend control: 'auto' reads the reading's DECODED blendMode (the
+ *  machine's own surface quality — item-1/0.2.1); 'soft'/'cut' are a manual
+ *  OVERRIDE, visibly labelled as such. */
+type BlendChoice = 'auto' | BlendMode;
+
+/** The effective surface mode for a reading under the current blend choice. */
+function effectiveBlend(sdf: SdfParams, choice: BlendChoice): BlendMode {
+  return choice === 'auto' ? sdf.blendMode ?? 'soft' : choice;
+}
+
 async function loadSeedForms(): Promise<LabSeed[]> {
   const res = await fetch('seed-forms.json');
   if (!res.ok) throw new Error(`seed-forms.json HTTP ${res.status}`);
@@ -96,12 +106,13 @@ function buildLab(): void {
   const sentenceText = document.querySelector('#lab-sentence-text') as HTMLElement;
   const driftInput = document.querySelector('#lab-drift') as HTMLInputElement;
   const driftReadout = document.querySelector('#lab-drift-readout') as HTMLSpanElement;
+  const blendReadout = document.querySelector('#lab-blend-readout') as HTMLSpanElement;
   const cards = Array.from(document.querySelectorAll<HTMLElement>('.lab-card'));
 
   const cardDisposers = new Map<string, CardHandle>();
   let forms: LabSeed[] = [];
-  // Aesthetic experiment state (the cut/morph fork + part colours).
-  let blend: BlendMode = 'soft';
+  // Aesthetic experiment state (the blend fork + part colours).
+  let blendChoice: BlendChoice = 'auto';
   let partColor = true;
 
   // One "drag to turn" affordance per card, attached once (survives rebuilds).
@@ -147,7 +158,7 @@ function buildLab(): void {
       cardHandle = { main: [], stations: [] };
       cardDisposers.set(kind, cardHandle);
     }
-    const sceneOpts = { blend, perPartColor: partColor };
+    const sceneOpts = { blend: effectiveBlend(form, blendChoice), perPartColor: partColor };
 
     // Main view: the reading at this drift, register-lived.
     const mainMount = card.querySelector('.lab-main') as HTMLElement;
@@ -174,6 +185,13 @@ function buildLab(): void {
     const seed = forms[idx];
     if (!seed) return;
     driftReadout.textContent = drift.toFixed(2);
+
+    // Blend: auto reads the reading's decoded surface mode; the buttons are a
+    // labelled override (never presented as meaning — C1).
+    blendReadout.textContent =
+      blendChoice === 'auto'
+        ? `auto → ${effectiveBlend(seed.sdfParams, blendChoice)} · decoded`
+        : `override → ${blendChoice}`;
 
     // Structure: automatic (richness follows length) or the manual override.
     const richness = richnessAuto.checked
@@ -254,11 +272,13 @@ function buildLab(): void {
   driftInput.addEventListener('input', renderAll);
   sentenceSelect.addEventListener('change', renderAll);
 
-  // Blend fork: soft-morph ⇄ hard-cut (the original's overlapping solids).
+  // Blend fork: auto (the decoded surface mode) ⇄ manual soft-morph / hard-cut
+  // override. The override stays visible as an override — the machine's mode
+  // is never overwritten silently.
   const blendSeg = document.querySelector('#lab-blend') as HTMLElement;
   for (const btn of Array.from(blendSeg.querySelectorAll('button'))) {
     btn.addEventListener('click', () => {
-      blend = (btn.dataset['blend'] as BlendMode) ?? 'soft';
+      blendChoice = (btn.dataset['blend'] as BlendChoice) ?? 'auto';
       for (const b of Array.from(blendSeg.querySelectorAll('button'))) {
         b.classList.toggle('active', b === btn);
       }

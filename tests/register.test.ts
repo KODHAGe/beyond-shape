@@ -70,6 +70,13 @@ describe('retune — validity & determinism', () => {
     expect(retune(fixture(), 'clay', -1).blendRadius).toBe(retune(fixture(), 'clay', 0).blendRadius);
     expect(retune(fixture(), 'clay', 2).blendRadius).toBe(retune(fixture(), 'clay', 1).blendRadius);
   });
+
+  it('carries the decoded blendMode through retune untouched (machine’s surface quality)', () => {
+    expect(retune(fixture({ blendMode: 'cut' }), 'collision', 0.6).blendMode).toBe('cut');
+    expect(retune(fixture({ blendMode: 'soft' }), 'clay', 0.3).blendMode).toBe('soft');
+    // Legacy mode-less readings resolve to the soft default.
+    expect(retune(fixture(), 'collision', 0.6).blendMode).toBe('soft');
+  });
 });
 
 describe('the spindle (drift behaviour)', () => {

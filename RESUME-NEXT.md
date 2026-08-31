@@ -107,8 +107,12 @@ scale or a separate palette slice.
    build · e2e chromium all green.
 3. **Blend-as-decoded (item 1) + blob target taming + sat-variance (same
    retrain)** — spec DRAFTED `specs/implementation-spec-item1-blend-decoded.md`
-   (manifest 0.2.1). Needs the training env (available in `.venv`, CPU ~15 min
-   baseline from Slice 2) and the consensus loop (§9 pending).
+   (manifest 0.2.1). **Render-code wiring SHIPPED 2026-08-31:** `SdfParams.blendMode`,
+   hardness→mode decode (legacy→'soft'), renderers default from the decoded
+   mode, lab **auto · decoded / manual override + readout** (e2e `lab.spec.ts`).
+   Remaining: the **decoder retrain + corpus regen + manifest 0.2.1** (needs
+   the training env — available in `.venv`, CPU ~15 min baseline from Slice 2)
+   and the consensus loop (§9 pending).
 
 ## At resume, before building
 

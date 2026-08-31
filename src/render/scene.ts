@@ -105,7 +105,7 @@ export function createScene(container: HTMLElement, seed: number, sdf: SdfParams
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   container.appendChild(renderer.domElement);
-  const blend = opts?.blend ?? 'soft';
+  const blend = opts?.blend ?? sdf.blendMode ?? 'soft';
   const perPartColor = opts?.perPartColor ?? true;
 
   const scene = new THREE.Scene();
@@ -332,7 +332,7 @@ export function createCellScene(container: HTMLElement, seed: number, sdf: SdfPa
   rim.position.set(-4, 2, -5);
   scene.add(key, fill, rim);
 
-  const solid = getSolidMesh(sdf, opts?.blend ?? 'soft');
+  const solid = getSolidMesh(sdf, opts?.blend ?? sdf.blendMode ?? 'soft');
   const perPart = opts?.perPartColor ?? true;
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(solid.positions, 3));

@@ -230,6 +230,9 @@ export function retune(form: SdfParams, kind: RegisterKind, drift: number, richn
     // The spindle turns the SAME blend radius one way or the other — clamping
     // to the decode's own valid band so the session topology never breaks.
     blendRadius: clamp(form.blendRadius * lerp(1, spec.weld, e), 0.05, 0.5),
+    // Blend MODE is the machine's surface quality — passed through untouched.
+    // Drift moves space/seam/materials; it does not overwrite the decoded mode.
+    blendMode: form.blendMode ?? 'soft',
     parts: parts as SdfParams['parts'],
     material,
     motion: form.motion,

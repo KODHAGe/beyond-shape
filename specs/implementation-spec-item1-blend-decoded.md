@@ -2,6 +2,11 @@
 
 Status: **DRAFT** (human-decided plan, 2026-08-31 · NOT yet consensus-approved —
 must pass the Stage-1 loop per AGENTS.md §4 before dev agents bind to it)
+⏵ **PROGRESS 2026-08-31:** the render-code wiring is SHIPPED — `SdfParams.blendMode`,
+hardness→mode decode (legacy→'soft'), renderers default from the decoded mode,
+lab **auto · decoded / manual override** (e2e `lab.spec.ts`). Remaining: decoder
+retrain (hardness head + sat-variance + blob targets), corpus regen, manifest
+0.2.1, consensus record §9.
 Owner: Tech Agent (draft) · Date: 2026-08-31
 
 > Scope source: plan item 1 (blend as a decoded variable) + plan item 2's
@@ -118,9 +123,14 @@ Owner: Tech Agent (draft) · Date: 2026-08-31
 
 ## 8. Out of scope / already shipped
 
-- **Shipped (commit after `83195a0`):** pure-solids render half — cut marches
-  at 64³ with no Laplacian smoothing (real creases; `gridForMode`/
-  `smoothingForMode` + unit guards in `tests/projection.test.ts`).
+- **Shipped:** pure-solids render half — cut marches at 64³ with no Laplacian
+  smoothing (real creases; `gridForMode`/`smoothingForMode` + unit guards in
+  `tests/projection.test.ts`).
+- **Shipped:** the render-code wiring — `SdfParams.blendMode` (types), hardness
+  → mode decode + `Decoder.decode` name-based read (legacy missing → 'soft'),
+  `getSolidMesh`/`createScene`/`createCellScene` default from the decoded mode,
+  `retune` passthrough, lab **auto · decoded / manual override** + readout
+  (e2e `lab.spec.ts`). Decoder retrain + corpus + manifest 0.2.1 remain.
 - Palette amendments 2 (cap hue wrap / document rule) and 3 (show the
   convention in marginalia) are UI copy + small math — RECOMMENDED same slice,
   but explicitly separable: folded in unless the Concept lens objects at review.

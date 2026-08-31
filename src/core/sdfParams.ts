@@ -11,6 +11,9 @@
  *   material      [1,7]   hue,sat,light,roughness,metalness,clearcoat,emissive
  *   motion        [1,2]   breathe, sway
  *   pose          [1,3]   yaw, pitch, roll
+ *   hardness      [1,1]   (0.2.1+) arbitrary per-anchor convention → blendMode:
+ *                         ≥ 0.5 → 'cut' (overlapping solids), else 'soft'.
+ *                         The 0.2.0 decoder omits this output ⇒ 'soft'.
  *
  * Validity boundaries are hard-clamped; PALETTE bias (sat/light) is a soft
  * bias, never a clamp (QR-4/A6 — "pastel is a field, not a filter").
@@ -18,6 +21,7 @@
 
 import type { ModelManifest, SdfParams } from '../types';
 import { ModelMissingError } from '../types';
+import type { BlendMode } from './sdfField';
 import { LazySession, requireModelFile } from './models';
 import { ortSessionOptions } from './ortSession';
 import { clamp, softBias, softmax, wrap01, wrapTwoPi } from '../lib/math';
@@ -35,6 +39,18 @@ export interface DecoderRaw {
   material: number[]; // 7
   motion: number[]; // 2
   pose: number[]; // 3
+  /** 0.2.1+ decoder output; missing (= 0.2.0) decodes to 'soft'. */
+  hardness?: number;
+}
+
+/** Arbitrary per-anchor convention (never semantics): the 0.2.1 decoder maps
+ *  its hardness head to the surface mode at the 0.5 threshold — blob/torus
+ *  anchors train 'soft', solid anchors train 'cut'. A manifest-provenanced
+ *  rule, not a reading's meaning. */
+export const BLEND_HARDNESS_THRESHOLD = 0.5;
+
+export function decodeBlendMode(hardness: number | undefined): BlendMode {
+  return hardness !== undefined && hardness >= BLEND_HARDNESS_THRESHOLD ? 'cut' : 'soft';
 }
 
 interface PartParams {
@@ -82,6 +98,7 @@ export function decodeRawToSdfParams(raw: DecoderRaw): SdfParams {
   return {
     weights,
     blendRadius: clamp(raw.blendRadius, BLEND_RADIUS_RANGE[0], BLEND_RADIUS_RANGE[1]),
+    blendMode: decodeBlendMode(raw.hardness),
     parts: parts as SdfParams['parts'],
     material: {
       hue: wrap01(raw.material[0] ?? 0),
@@ -133,7 +150,7 @@ export class Decoder {
     const names = session.outputNames;
 
     const dataOf = (name: string): Float32Array =>
-      ((output[name] as ort.Tensor).data as Float32Array) ?? new Float32Array(0);
+      ((output[name] as ort.Tensor | undefined)?.data as Float32Array | undefined) ?? new Float32Array(0);
 
     const weightsOut = dataOf(names[0] ?? 'weights');
     const radiusOut = dataOf(names[1] ?? 'blend_radius');
@@ -141,6 +158,9 @@ export class Decoder {
     const materialOut = dataOf(names[3] ?? 'material');
     const motionOut = dataOf(names[4] ?? 'motion');
     const poseOut = dataOf(names[5] ?? 'pose');
+    // 0.2.1+ decoder head — read by NAME so the 0.2.0 model (no hardness)
+    // keeps decoding to the default 'soft' without index gymnastics.
+    const hardnessOut = dataOf('hardness');
 
     return decodeRawToSdfParams({
       weights: Array.from(weightsOut.slice(0, 8)),
@@ -149,6 +169,7 @@ export class Decoder {
       material: Array.from(materialOut.slice(0, 7)),
       motion: Array.from(motionOut.slice(0, 2)),
       pose: Array.from(poseOut.slice(0, 3)),
+      hardness: hardnessOut.length > 0 ? hardnessOut[0] : undefined,
     });
   }
 }

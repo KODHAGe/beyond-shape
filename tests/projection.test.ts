@@ -198,6 +198,20 @@ describe('pure-solids cut path', () => {
     // anyone re-adding the Laplacian pass to the cut path.
     expect(cutFold).toBeGreaterThan(softFold + 0.15);
   });
+
+  it('defaults to the reading’s decoded blendMode; an explicit mode still wins', () => {
+    const cutReading = { ...duoFixture(), blendMode: 'cut' as const };
+    const n = gridForMode('cut');
+    const raw = marchCubes(sampleField(cutReading, n, -1.5, 1.5, 'cut'), n, n, n, -1.5, 1.5);
+    // No explicit mode → the decoded 'cut': the raw 64³ surface, crease kept.
+    const auto = getSolidMesh(cutReading);
+    expect(Array.from(auto.positions)).toEqual(Array.from(raw.positions));
+    // An explicit 'cut' resolves to the same cached entry.
+    expect(getSolidMesh(cutReading, 'cut')).toBe(auto);
+    // An explicit 'soft' overrides a cut reading.
+    const overridden = getSolidMesh(cutReading, 'soft');
+    expect(Array.from(overridden.positions)).not.toEqual(Array.from(raw.positions));
+  });
 });
 
 describe('projectFaces', () => {

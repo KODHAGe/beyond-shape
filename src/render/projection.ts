@@ -98,18 +98,22 @@ const meshCache = new Map<string, SolidMesh>();
  * March + smooth a reading once, cached by (sdfKey, mode). Per-vertex colours
  * come from each vertex's part influence (soft = weighted blend, cut = owning
  * part) — view-independent, paid once. Pure (no DOM needed).
+ * `mode` defaults to the READING's decoded blendMode (0.2.1+; legacy reads
+ * resolve 'soft') — an explicit mode still wins (e.g. the lab's manual
+ * override).
  */
-export function getSolidMesh(sdf: SdfParams, mode: BlendMode = 'soft'): SolidMesh {
-  const key = `${sdfKey(sdf)}:${mode}`;
+export function getSolidMesh(sdf: SdfParams, mode?: BlendMode): SolidMesh {
+  const effective = mode ?? sdf.blendMode ?? 'soft';
+  const key = `${sdfKey(sdf)}:${effective}`;
   const hit = meshCache.get(key);
   if (hit) return hit;
 
-  const n = gridForMode(mode);
-  const field = sampleField(sdf, n, -FIELD_RANGE, FIELD_RANGE, mode);
+  const n = gridForMode(effective);
+  const field = sampleField(sdf, n, -FIELD_RANGE, FIELD_RANGE, effective);
   const marched = marchCubes(field, n, n, n, -FIELD_RANGE, FIELD_RANGE);
   // 'cut' keeps the raw marched surface (no Laplacian) so the seam where the
   // solids cut stays a real crease; 'soft' smooths, its weld reads rounded.
-  const positions = smoothingForMode(mode)
+  const positions = smoothingForMode(effective)
     ? laplacianSmooth(marched.positions, marched.indices, 1)
     : marched.positions;
 
@@ -121,7 +125,7 @@ export function getSolidMesh(sdf: SdfParams, mode: BlendMode = 'soft'): SolidMes
     const pz = positions[v * 3 + 2] ?? 0;
     const r = Math.hypot(px, py, pz);
     if (r > radius) radius = r;
-    const { influence } = evaluateParts(sdf, [px, py, pz], mode);
+    const { influence } = evaluateParts(sdf, [px, py, pz], effective);
     const [cr, cg, cb] = mergePartRgb(sdf, influence);
     colors[v * 3] = cr;
     colors[v * 3 + 1] = cg;
