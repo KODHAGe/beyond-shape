@@ -252,3 +252,74 @@ canvas.bs-dragging {
   min-height: 1.2em;
   overflow-wrap: anywhere;
 }
+
+/* ── Collection (Phase D): the co-creation loop + consent (DR-2, FR-16/17) ── */
+.bs-cocreation {
+  margin-top: 10px;
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 14px;
+  border: 1px solid rgba(255, 158, 199, 0.35);
+}
+.bs-cocreation-judge {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.bs-cocreation-btn,
+.bs-cocreation-share-btn {
+  font: inherit;
+  padding: 8px 14px;
+  border: 1px solid #e6d8e6;
+  border-radius: 999px;
+  background: #fffdf9;
+  color: var(--ink);
+  cursor: pointer;
+}
+.bs-cocreation-btn.chosen,
+.bs-cocreation-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.bs-cocreation-share-btn {
+  background: var(--accent);
+  border: 0;
+  color: #fff;
+  font-weight: 600;
+}
+.bs-cocreation-btn:disabled,
+.bs-cocreation-share-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.bs-cocreation-consent {
+  display: grid;
+  gap: 12px;
+}
+.bs-cocreation-consent-label {
+  font-size: 0.85rem;
+  color: var(--muted);
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  line-height: 1.45;
+}
+.bs-cocreation-consent-label input {
+  margin-top: 3px;
+}
+.bs-cocreation-share {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.bs-cocreation-share-note {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.bs-cocreation-result {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--accent);
+}

@@ -7,8 +7,12 @@
 > — sat spread 0.567, blend 14 cut/5 soft, blob ripple tamed, voices intact.
 > **Follow-on:** render off-forms diagnosed (box is a real cube, the "flat slab"
 > was a face-on camera) → Concept-agreed **three-quarter initial view** shipped
-> (`THREE_QUARTER_YAW_OFFSET`, both tiers; verified by eye + FR-10 e2e).
-> Remaining: palette amendments 2/3 (hue wrap cap, show-hue-as-convention).
+> (+ palette amendments 2/3). **Phase D Slice 1 SHIPPED:** collection — D1 D1
+> `contributions` schema + consent-gated edge write path (`functions/api/
+> contribute.ts`, DR-1/2/3), D2 plain-language CC BY-SA opt-in, D3 co-creation
+> loop (keep/try another/not this one → share). Local-first proven (no transmit
+> until opt-in + share; e2e). **Deploy note:** create the D1 db + apply
+> migrations; remaining Phase D = aligner (D4) + weekly drift (D5).
 > This is a *decision/resume record*, not an implementation spec. Per
 > AGENTS.md §4/§5, the slices below must pass the consensus loop and be
 > converted into an Implementation Spec at resume before dev agents build.

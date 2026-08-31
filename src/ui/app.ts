@@ -27,6 +27,13 @@ import { fingerprint as fingerprintOf } from '../lib/fingerprint';
 import { Progress } from './progress';
 import { createMarginaliaPanel, computeMarginality } from './marginaliaPanel';
 import { createAlternatesStrip, type AlternateCell } from './alternatesStrip';
+import { createCoCreation } from './coCreation';
+import {
+  buildContribution,
+  contributorId,
+  submitContribution,
+  textSha256,
+} from '../state/contribution';
 
 const SEED_FORMS_URL = 'seed-forms.json';
 // D-B register verdict (aesthetic lab, 2026-08-30): collision — seamed,
@@ -117,9 +124,16 @@ export async function mountApp(root: HTMLElement): Promise<AppHandle> {
   root.appendChild(alternatesMount);
   const marginaliaMount = document.createElement('div');
   root.appendChild(marginaliaMount);
+  // Collection (Phase D): the co-creation loop + consent, mounted after the
+  // form so the visitor judges the reading that just arrived.
+  const coCreationMount = document.createElement('div');
+  coCreationMount.hidden = true;
+  root.appendChild(coCreationMount);
   const statusLine = document.createElement('p');
   statusLine.className = 'bs-status';
   root.appendChild(statusLine);
+  // The most recent run — the one the co-creation loop judges / shares.
+  let currentRun: RunRecord | null = null;
 
   // ── Warm-up (stages 2-4: renderer → embedder → generator) ─────────────────
   progress.setStage('placeholder', 'done');
@@ -151,6 +165,31 @@ export async function mountApp(root: HTMLElement): Promise<AppHandle> {
   const store = new RunStore();
   const marginalia = createMarginaliaPanel(marginaliaMount);
   const alternates = createAlternatesStrip(alternatesMount);
+  const coCreation = createCoCreation(coCreationMount, {
+    // Adjust: a new sample — the visitor's hand re-periods the shape (FR-16).
+    onAdjust() {
+      const nextSeed = Math.max(1, (currentRun?.seed ?? Math.floor(Number(seed.value) || 42)) + 1);
+      seed.value = String(nextSeed);
+      void runOnce();
+    },
+    // The ONLY outbound call: an explicit share, gated on the opt-in (DR-2).
+    async onSubmit(gradient, consented) {
+      if (!currentRun) return false;
+      try {
+        const sha = await textSha256(currentRun.inputText);
+        const payload = buildContribution(currentRun, gradient, {
+          contributorId: contributorId(),
+          textSha256: sha,
+          consent: consented,
+          register: REGISTER,
+        });
+        const res = await submitContribution(payload);
+        return res.ok === true;
+      } catch {
+        return false;
+      }
+    },
+  });
 
   let manifest: ModelManifest | null = null;
   let seedForms: SeedForm[] = [];
@@ -252,6 +291,10 @@ export async function mountApp(root: HTMLElement): Promise<AppHandle> {
       const notes = computeMarginality(e, z, seedForms);
       marginalia.render(run, notes, seedForms);
       line(`this run's hash: ${fp.slice(0, 16)}… (same words, same knob, same seed — same form)`);
+      // The crowd's hand (FR-16): judge the reading that just arrived.
+      currentRun = run;
+      coCreation.reset();
+      coCreation.show();
     } catch (err) {
       if (err instanceof ModelMissingError) {
         progress.setStage('models', 'error');

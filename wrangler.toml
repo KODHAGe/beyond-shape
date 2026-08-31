@@ -3,5 +3,14 @@ name = "beyond-shape"
 compatibility_date = "2025-01-01"
 pages_build_output_dir = "dist"
 
-# Edge: thin Pages Function functions/api/status.ts only (CR-3/CR-6).
-# No D1 / KV / R2 in this slice — schema note only (spec §5).
+# Edge: thin Pages Function — functions/api/status.ts (stub) +
+# functions/api/contribute.ts (Phase D Slice 1: the consent-gated write path).
+#
+# Phase D Slice 1 — D1 binding for the `contributions` table (DR-1/DR-3).
+# `database_id` is filled at first `wrangler d1 create`; until then local dev
+# uses a miniflare D1 covered by migrations_dir="schema".
+[[d1_databases]]
+binding = "DB"
+database_name = "beyond-shape"
+database_id = "REPLACE_AT_wrangler_d1_create"
+migrations_dir = "schema"
