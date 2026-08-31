@@ -40,6 +40,8 @@ playwright-report/
 
 # Python toolchain (LR-9) — pinned in requirements.txt
 .venv/
+__pycache__/
+*.pyc
 
 # Logs
 *.log

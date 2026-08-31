@@ -2,9 +2,11 @@
 
 > Status: **decided by the user** · resume trigger: "access back"
 > ⏵ **PROGRESS 2026-08-31:** item 2 render half SHIPPED; palette evaluation
-> (item 3) recorded; item-1 spec drafted (§. "Resume order" below). Origin
-> pushed to `83195a0`. Remaining: consensus loop + decoder retrain (0.2.1) +
-> the open "vivid vs pastel" human decision.
+> (item 3) recorded → **human ruling: PASTEL**; item-1 FULLY SHIPPED incl. the
+> decoder retrain (decoder-v2, manifest **0.2.1-generated**, denoiser untouched)
+> — sat spread 0.567, blend 14 cut/5 soft, blob ripple tamed, voices intact.
+> Origin pushed to `2f50001` + pending commit. Remaining: consensus record §9
+> on the item-1 spec (formality — decision + result recorded in Round VI).
 > This is a *decision/resume record*, not an implementation spec. Per
 > AGENTS.md §4/§5, the slices below must pass the consensus loop and be
 > converted into an Implementation Spec at resume before dev agents build.

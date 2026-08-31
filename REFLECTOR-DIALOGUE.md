@@ -242,3 +242,26 @@ consensus loop, bound into the item-1 slice (`0.2.1`: blend-as-decoded +
 sat-variance targets, same retrain — denoiser untouched). The human decides at
 review whether "vivid vs pastel" becomes a *recorded variable* of the reading
 or stays a register property. Status: **open — one human decision pending**.
+
+### Round VI closed — human ruling & the 0.2.1 result (2026-08-31)
+
+**Human decision: PASTEL.** Saturation does NOT become a decoded vivid
+variable — it stays a register property. The Round VI critique ("a uniform,
+not a field") is answered by *variance inside the pastel field*, not by
+vividness: each anchor carries its own saturation target inside the [0.1, 0.7]
+bias band (raw targets chosen so soft_bias lands ≈ 0.22–0.70), and blends
+interpolate material — so richness and anchor mix spread saturation per
+reading while the register stays pastel.
+
+**Measured on the regenerated 19-seed corpus (decoder v2, denoiser untouched):**
+- saturation spread **0.143–0.710 (spread 0.567)** — the 0.076 uniform is
+  dead, nothing leaves the pastel field (0.71 sits inside the soft shoulder);
+- blend modes **14 cut / 5 soft** — both grammars present in the automatic
+  experience (the convention: solid alphabet cuts, roundedBox/torus/blob morph);
+- blob ripple tamed at the target level — decoded displacement max 0.113
+  (0.2.0-era ripples ran to the 0.5 clamp);
+- voice-surfacing intact — rich readings still decode 4–5 active voices
+  (`scripts/verify_voices.py`: fog 5, summer kitchen 3, ferry 4);
+- denoiser sha unchanged from 0.2.0; manifest `0.2.1-generated` (slice 3).
+
+**Status: CLOSED — decision recorded, variance shipped as instruction.**

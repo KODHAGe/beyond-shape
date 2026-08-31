@@ -105,7 +105,7 @@ def main() -> int:
     embedder = ort.InferenceSession(str(models / "embedder-all-minilm-l6-v2-int8.onnx"))
     sensory = ort.InferenceSession(str(models / "sensory-v0-int8.onnx"))
     denoiser = ort.InferenceSession(str(models / "denoiser-v2-int8.onnx"))
-    decoder = ort.InferenceSession(str(models / "decoder-v1-int8.onnx"))
+    decoder = ort.InferenceSession(str(models / "decoder-v2-int8.onnx"))
 
     rng = np.random.default_rng(7)
     for text, drift in TESTS:
@@ -130,7 +130,8 @@ def main() -> int:
 
         z = ddim_sample(c, drift, rng, denoiser)
         raw = decoder.run(
-            ["weights", "blend_radius", "parts", "material", "motion", "pose"], {"z": z[None, :]}
+            ["weights", "blend_radius", "parts", "material", "motion", "pose", "hardness"],
+            {"z": z[None, :]},
         )
         w_logits = np.asarray(raw[0][0], dtype=np.float32)
         m = float(np.max(w_logits))
@@ -138,8 +139,9 @@ def main() -> int:
         w = w / w.sum()
         active = int((w > 0.08).sum())
         top = ", ".join(f"{v:.2f}" for v in sorted(w, reverse=True)[:4])
+        blend = "cut" if float(raw[6][0][0]) >= 0.5 else "soft"
         print(
-            f"drift={drift:.2f} rich={richness:.2f} tok={seq:>3} "
+            f"drift={drift:.2f} rich={richness:.2f} tok={seq:>3} blend={blend:<4} "
             f"active={active}  {top}   | {text[:40]}"
         )
     return 0

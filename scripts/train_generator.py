@@ -10,14 +10,16 @@ artifacts for inference so the corpus matches the browser contract 1:1:
             → c = concat(e, q) = [400]
   dataset   → Gaussian clouds around each seed zCenter + inter-centre blends
   decoder   → z[64] → raw SdfParams outputs (weights8, blend_radius1, parts64,
-              material7, motion2, pose3)  — FR-7 anchors decode to primitives
+              material7, motion2, pose3, hardness1) — FR-7 anchors decode to
+              primitives; hardness = the 0.2.1 arbitrary per-anchor blend-mode
+              convention (≥ 0.5 → 'cut', else 'soft')
   denoiser  → DDPM (cosine β, T=1000, MSE on ε, ≤3M params) conditioned on c
               with the browser's 25-step DDIM in mind — canonical d=0 zeros.
 
 Outputs (all overridable via --out-dir, default public/):
   seed-forms.json   real {id,text,e,zCenter,sdfParams}
-  models/models.json  v0.1.0 with real sha256/sizes + trainingSource provenance
-  models/decoder-v1-int8.onnx, denoiser-v1-int8.onnx
+  models/models.json  v0.2.1 with real sha256/sizes + trainingSource provenance
+  models/decoder-v2-int8.onnx, denoiser-v2-int8.onnx
 
 Reproducible: fixed torch/python seeds + content-derived build stamp ⇒
 byte-identical regeneration on the same env (LR-9).
@@ -124,6 +126,27 @@ ANCHOR_LATENTS: List[List[float]] = [
     for p in range(len(PRIMITIVE_NAMES))
 ]
 
+# ── 0.2.1 per-anchor conventions (item-1 spec §3) ─────────────────────────────
+# Blend MODE per anchor is an ARBITRARY convention (never semantic): most of
+# the alphabet cuts (sphere box cylinder cone capsule) but a meaningful share
+# morphs (roundedBox torus blob), so BOTH surface grammars stay present in the
+# automatic experience — a reading that cuts is noticed because some readings
+# don't. Mid-latents interpolate hardness. Mirrored threshold in
+# src/core/sdfParams.ts and decode_raw_to_sdfparams below.
+BLEND_HARDNESS_THRESHOLD = 0.5
+SOFT_BLEND_ANCHORS = {2, 5, 7}  # roundedBox, torus, blob → 'soft'; else 'cut'
+
+# Palette variance (Round VI, human decision: PASTEL, not vivid): each anchor
+# carries its OWN saturation INSIDE the pastel band — the field, not a uniform.
+# Values are RAW decoder targets (pre soft_bias), chosen so the decoded
+# saturations land ≈ 0.22..0.70 inside the [0.1, 0.7] bias band (never vivid).
+ANCHOR_SAT_RAW: Tuple[float, ...] = (1.2, 0.10, 0.65, 1.0, 0.25, 0.50, 0.35, 0.15)
+
+# Blob ripple tamed AT THE TARGET LEVEL (plan item 2): the blob anchor's
+# displacement cap drops 0.4 → 0.22 so the "off-forms" come from the data,
+# not from a display clamp (decode clamp 0..0.5 stays).
+BLOB_DISP_TARGET = 0.22
+
 LICENSES = [
     {"name": "all-MiniLM-L6-v2", "license": "Apache-2.0",
      "note": "attribute per public/models/LICENSES/README.md"},
@@ -151,6 +174,12 @@ def content_stamp() -> str:
         "seeds": SEED_TEXTS,
         "config": CONFIG,
         "channels": SENSORY_CHANNELS,
+        "blendConvention": {
+            "threshold": BLEND_HARDNESS_THRESHOLD,
+            "softAnchors": sorted(SOFT_BLEND_ANCHORS),
+        },
+        "palette": {"anchorSatRaw": list(ANCHOR_SAT_RAW), "decision": "pastel field"},
+        "blobDispTarget": BLOB_DISP_TARGET,
     }, sort_keys=True).encode("utf-8"))
     return "content-" + digest.hexdigest()[:16]
 
@@ -239,12 +268,13 @@ def canonical_sdf_raw(p: int) -> List[float]:
             elif p == 4: parts += _part(0.9)
             elif p == 5: parts += _part(1.0)
             elif p == 6: parts += _part(0.7)
-            else:        parts += _part(1.0, disp=0.4)   # blob ripple
+            else:        parts += _part(1.0, disp=BLOB_DISP_TARGET)  # blob ripple, tamed
         else:
             parts += _part(1.0)                # neutral, gated by weight ~0
     hue = [0.05, 0.10, 0.16, 0.30, 0.42, 0.55, 0.70, 0.88][p]  # warm→cool wander
-    material = [hue, 0.55, 0.75, 0.45, 0.0, 0.0, 0.0]
-    return weights + [blend] + parts + material + [0.05, 0.0] + [0.4, 0.1, 0.0]
+    material = [hue, ANCHOR_SAT_RAW[p], 0.75, 0.45, 0.0, 0.0, 0.0]
+    hardness = 0.0 if p in SOFT_BLEND_ANCHORS else 1.0
+    return weights + [blend] + parts + material + [0.05, 0.0] + [0.4, 0.1, 0.0] + [hardness]
 
 
 def lerp(a: float, b: float, t: float) -> float:
@@ -265,7 +295,13 @@ def blend_target(p: int, r: int, lam: float, rng: random.Random) -> List[float]:
     w[p] = 0.55
     w[r] = 0.45
     base = [lerp(x, y, lam) for x, y in zip(a[9:73], b[9:73])]
-    return w + [lerp(a[8], b[8], lam)] + base + a[73:80] + a[80:85]
+    # 0.2.1: a blend is "between" in EVERYTHING, not just the parts — material
+    # (incl. per-anchor saturation → the palette field propagates to blends),
+    # motion, pose, and hardness all interpolate with the same λ.
+    mat = [lerp(x, y, lam) for x, y in zip(a[73:80], b[73:80])]
+    mot = [lerp(x, y, lam) for x, y in zip(a[80:82], b[80:82])]
+    pos = [lerp(x, y, lam) for x, y in zip(a[82:85], b[82:85])]
+    return w + [lerp(a[8], b[8], lam)] + base + mat + mot + pos + [lerp(a[85], b[85], lam)]
 
 
 class DecoderMLP(nn.Module):
@@ -281,10 +317,11 @@ class DecoderMLP(nn.Module):
         self.m = nn.Linear(hidden, 7)
         self.mo = nn.Linear(hidden, 2)
         self.po = nn.Linear(hidden, 3)
+        self.h = nn.Linear(hidden, 1)  # 0.2.1 hardness (arbitrary per-anchor convention)
 
     def forward(self, z):
         h = self.net(z)
-        return (self.w(h), self.b(h), self.p(h), self.m(h), self.mo(h), self.po(h))
+        return (self.w(h), self.b(h), self.p(h), self.m(h), self.mo(h), self.po(h), self.h(h))
 
 
 def build_decoder_dataset(rng: random.Random, samples_per_pair: int = 400) -> List[Tuple[List[float], List[float]]]:
@@ -312,7 +349,8 @@ def split_target(t: List[float]):
     mat = t[73:80]
     mot = t[80:82]
     pos = t[82:85]
-    return w8, br, parts, mat, mot, pos
+    hard = [t[85]]
+    return w8, br, parts, mat, mot, pos, hard
 
 
 def train_decoder(out_dir: Path, steps: int, batch: int) -> Path:
@@ -328,11 +366,12 @@ def train_decoder(out_dir: Path, steps: int, batch: int) -> Path:
     y_m = torch.tensor([split_target(d[1])[3] for d in data], dtype=torch.float32)   # N, 7
     y_mo = torch.tensor([split_target(d[1])[4] for d in data], dtype=torch.float32)  # N, 2
     y_po = torch.tensor([split_target(d[1])[5] for d in data], dtype=torch.float32)  # N, 3
+    y_h = torch.tensor([split_target(d[1])[6] for d in data], dtype=torch.float32)   # N, 1
 
     for step in range(steps):
         idx = torch.randint(0, xs.shape[0], (batch,))
         z = xs[idx]
-        w8, br, parts, mat, mot, pos = model(z)
+        w8, br, parts, mat, mot, pos, h = model(z)
         loss_w = F.kl_div(F.log_softmax(w8, dim=1), y_w[idx], reduction="batchmean")
         loss = (
             loss_w
@@ -341,6 +380,7 @@ def train_decoder(out_dir: Path, steps: int, batch: int) -> Path:
             + F.mse_loss(mat, y_m[idx])
             + F.mse_loss(mot, y_mo[idx])
             + F.mse_loss(pos, y_po[idx])
+            + F.mse_loss(h, y_h[idx])
         )
         opt.zero_grad()
         loss.backward()
@@ -349,12 +389,12 @@ def train_decoder(out_dir: Path, steps: int, batch: int) -> Path:
             print(f"  [decoder] step {step} loss {loss.item():.4f}")
 
     fp32 = out_dir / "decoder-fp32.onnx"
-    int8 = out_dir / "decoder-v1-int8.onnx"
+    int8 = out_dir / "decoder-v2-int8.onnx"
     _export(
         model, (torch.zeros(1, 64, dtype=torch.float32),),
         fp32, int8,
         in_names=["z"],
-        out_names=["weights", "blend_radius", "parts", "material", "motion", "pose"],
+        out_names=["weights", "blend_radius", "parts", "material", "motion", "pose", "hardness"],
         dyn={"z": {0: "batch"}},
     )
     fp32.unlink(missing_ok=True)
@@ -632,6 +672,7 @@ def decode_raw_to_sdfparams(raw: List[float]) -> Dict[str, Any]:
     return {
         "weights": w,
         "blendRadius": _clamp(raw[8], 0.05, 0.5),
+        "blendMode": "cut" if raw[85] >= BLEND_HARDNESS_THRESHOLD else "soft",
         "parts": parts,
         "material": {
             "hue": wrap01(mat[0]),
@@ -666,8 +707,8 @@ def write_manifest(out_dir: Path, stamp: str, denoiser: Path, decoder: Path) -> 
                models_dir / "sensory-v0-int8.onnx"]
     total = sum(int(p.stat().st_size) for p in present)
     manifest = {
-        "version": "0.2.0-generated",
-        "slice": 2,
+        "version": "0.2.1-generated",
+        "slice": 3,
         "generatedAt": stamp,
         "totalBytes": total,
         "artifacts": {
@@ -688,6 +729,19 @@ def write_manifest(out_dir: Path, stamp: str, denoiser: Path, decoder: Path) -> 
             "anchors": ANCHOR_LATENTS,
             "canonicalD0Latent": CANONICAL_D0_LATENT,
             "config": CONFIG,
+            # 0.2.1 provenance: the blend-mode convention + palette decision are
+            # part of the machine's grammar, recorded like any other bias.
+            "blendModeConvention": {
+                "threshold": BLEND_HARDNESS_THRESHOLD,
+                "softAnchors": [PRIMITIVE_NAMES[i] for i in sorted(SOFT_BLEND_ANCHORS)],
+                "cutAnchors": [PRIMITIVE_NAMES[i] for i in range(8) if i not in SOFT_BLEND_ANCHORS],
+                "note": "arbitrary per-anchor convention, never semantics",
+            },
+            "palette": {
+                "decision": "pastel field (Round VI human ruling)",
+                "anchorSatRaw": list(ANCHOR_SAT_RAW),
+            },
+            "blobDispTarget": BLOB_DISP_TARGET,
         },
         "licenses": LICENSES,
     }
@@ -720,15 +774,21 @@ def main(argv: Optional[List[str]] = None) -> int:
     corpus = build_seed_corpus(out_dir)
 
     print("[2/4] training decoder …")
-    if os.environ.get("BS_SKIP_DECODER") and (models_dir / "decoder-v1-int8.onnx").exists():
+    if os.environ.get("BS_SKIP_DECODER") and (models_dir / "decoder-v2-int8.onnx").exists():
         # Decoder is corpus-independent + deterministic; skip on iteration reruns.
-        decoder = models_dir / "decoder-v1-int8.onnx"
-        print("       (BS_SKIP_DECODER set — reusing decoder-v1-int8.onnx)")
+        decoder = models_dir / "decoder-v2-int8.onnx"
+        print("       (BS_SKIP_DECODER set — reusing decoder-v2-int8.onnx)")
     else:
         decoder = train_decoder(models_dir, steps=args.steps, batch=args.batch)
 
     print("[3/4] training denoiser (DDPM) …")
-    denoiser = train_denoiser(models_dir, corpus, steps=args.steps, batch=args.batch)
+    if os.environ.get("BS_SKIP_DENOISER") and (models_dir / "denoiser-v2-int8.onnx").exists():
+        # 0.2.1: "denoiser untouched" (item-1 spec §3) — the conditioning did not
+        # change, so the artifact is reused and the manifest sha matches 0.2.0.
+        denoiser = models_dir / "denoiser-v2-int8.onnx"
+        print("       (BS_SKIP_DENOISER set — reusing denoiser-v2-int8.onnx)")
+    else:
+        denoiser = train_denoiser(models_dir, corpus, steps=args.steps, batch=args.batch)
 
     print("[4/4] decoding seed sdfParams + writing corpus & manifest …")
     import numpy as np
@@ -736,7 +796,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     dec = ort.InferenceSession(str(decoder))
     for seed in corpus:
         z = np.array([seed["zCenter"]], dtype=np.float32)
-        out = dec.run(["weights", "blend_radius", "parts", "material", "motion", "pose"],
+        out = dec.run(["weights", "blend_radius", "parts", "material", "motion", "pose", "hardness"],
                       {"z": z})
         raw = (
             [float(v) for v in out[0][0]]
@@ -745,6 +805,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             + [float(v) for v in out[3][0]]
             + [float(v) for v in out[4][0]]
             + [float(v) for v in out[5][0]]
+            + [float(v) for v in out[6][0]]
         )
         seed["sdfParams"] = decode_raw_to_sdfparams(raw)
         seed.pop("c", None)

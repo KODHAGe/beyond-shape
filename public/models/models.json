@@ -1,8 +1,8 @@
 {
-  "version": "0.2.0-generated",
-  "slice": 2,
-  "generatedAt": "content-70ff1367d50c0269",
-  "totalBytes": 23542602,
+  "version": "0.2.1-generated",
+  "slice": 3,
+  "generatedAt": "content-4747ebef65540466",
+  "totalBytes": 23543691,
   "artifacts": {
     "embedder": {
       "file": "models/embedder-all-minilm-l6-v2-int8.onnx",
@@ -31,9 +31,9 @@
       "steps": 25
     },
     "decoder": {
-      "file": "models/decoder-v1-int8.onnx",
-      "sha256": "5194eb24b41281793048641d7ba5fab25f555d1d68bbf67cc5abcb60e10a8efb",
-      "sizeBytes": 115937,
+      "file": "models/decoder-v2-int8.onnx",
+      "sha256": "fea6a1d4cd56ae2972706a0c4db12acc4d1853ed20c999353399dc14a841b358",
+      "sizeBytes": 117026,
       "dim": 64
     },
     "aligner": null
@@ -90,7 +90,7 @@
   ],
   "trainingSource": {
     "seedForms": 19,
-    "generatedAt": "content-70ff1367d50c0269",
+    "generatedAt": "content-4747ebef65540466",
     "anchors": [
       [
         1.0,
@@ -699,7 +699,37 @@
       "denoiser_param_budget": 3000000,
       "embed_dim": 384,
       "max_tokens": 256
-    }
+    },
+    "blendModeConvention": {
+      "threshold": 0.5,
+      "softAnchors": [
+        "roundedBox",
+        "torus",
+        "blob"
+      ],
+      "cutAnchors": [
+        "sphere",
+        "box",
+        "cylinder",
+        "cone",
+        "capsule"
+      ],
+      "note": "arbitrary per-anchor convention, never semantics"
+    },
+    "palette": {
+      "decision": "pastel field (Round VI human ruling)",
+      "anchorSatRaw": [
+        1.2,
+        0.1,
+        0.65,
+        1.0,
+        0.25,
+        0.5,
+        0.35,
+        0.15
+      ]
+    },
+    "blobDispTarget": 0.22
   },
   "licenses": [
     {

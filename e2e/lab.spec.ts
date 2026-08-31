@@ -19,8 +19,10 @@ test('lab blend control: auto (decoded) default, manual override stays labelled'
   await expect(blendSeg.locator('button[data-blend="auto"]')).toHaveClass(/active/);
 
   // Wait for the first render (seeds load → renderAll sets the readout too).
+  // Auto shows the DECODED mode of the current reading — soft or cut, a real
+  // convention read (0.2.1), never a hardcoded one.
   const readout = page.locator('#lab-blend-readout');
-  await expect(readout).toContainText('auto → soft · decoded', { timeout: 20_000 });
+  await expect(readout).toContainText(/auto → (soft|cut) · decoded/, { timeout: 20_000 });
 
   // Manual override: hard-cut — the readout says so, plainly.
   await blendSeg.locator('button[data-blend="cut"]').click();
@@ -29,5 +31,5 @@ test('lab blend control: auto (decoded) default, manual override stays labelled'
 
   // Back to auto — the decoding takes over again.
   await blendSeg.locator('button[data-blend="auto"]').click();
-  await expect(readout).toContainText('auto → soft · decoded');
+  await expect(readout).toContainText(/auto → (soft|cut) · decoded/);
 });
