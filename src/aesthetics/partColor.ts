@@ -35,14 +35,26 @@ export function hslToRgb01(hue01: number, sat: number, light: number): Rgb01 {
   return { r: r + m, g: g + m, b: b + m };
 }
 
-/** A part's own colour — a gentle deterministic spread around the reading's hue. */
+/** A part's own colour — a gentle deterministic spread around the reading's hue.
+ *  Hue is capped to ±0.12 (±43°) so the reading's hue stays the VISIBLE CENTRE
+ *  of its parts (Round VI amendment 2): the part's identity is in its spread,
+ *  never in jumping to an unrelated colour. Sat/light still carry gentle
+ *  per-part variation (each voice in its own fabric). */
 export function partRgb(sdf: SdfParams, i: number): Rgb01 {
   const m = sdf.material;
-  const hue = wrap01(m.hue + 0.055 * ((i * 13 + 5) % 29));
+  const hue = wrap01(m.hue + partHueOffset(i));
   // Slightly MORE colour than the single-material read, still biased not clamped.
   const sat = clamp(m.saturation + 0.10 + ((i * 7) % 5) * 0.065, 0.05, 1);
   const light = clamp(m.lightness + ((i % 3) - 1) * 0.14, 0.2, 1);
   return hslToRgb01(hue, sat, light);
+}
+
+/** Deterministic, SIGNED, capped per-part hue offset (≤ ±0.12) around the
+ *  reading's hue. The old formula could wrap a full colour circle and detach a
+ *  part from its reading — the convention was present but undiscoverable. */
+export function partHueOffset(i: number): number {
+  const raw = (i * 13 + 5) % 29; // 0..28
+  return ((raw / 28) - 0.5) * 0.24; // -0.12 .. +0.12
 }
 
 /** Influence-weighted average of part colours at a surface point. */

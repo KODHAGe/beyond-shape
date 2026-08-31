@@ -55,10 +55,17 @@ export function createMarginaliaPanel(mount: HTMLElement): MarginaliaHandle {
   mount.className = 'bs-marginalia';
   const title = el('h2', 'bs-marginalia-title', "a stranger's reading");
   const subtitle = el('p', 'bs-marginalia-sub', 'whose crowd is this nearest');
+  // Amendment 3 (Round VI): the colour grammar is written plainly — each hue is
+  // an arbitrary convention handed to a voice, never a description of the words.
+  const caption = el(
+    'p',
+    'bs-marginalia-caption',
+    'every colour here is an arbitrary convention — a hue handed to a voice, never a description of the words.',
+  );
   const body = el('div', 'bs-marginalia-body');
   const note = el('p', 'bs-marginalia-note');
   note.hidden = true; // the FR-11 note is never suppressible once shown
-  mount.append(title, subtitle, body, note);
+  mount.append(title, subtitle, caption, body, note);
 
   function render(_run: RunRecord, notes: readonly MarginalityNote[], seeds: readonly SeedForm[]): void {
     body.replaceChildren();

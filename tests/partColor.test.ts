@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { SdfParams } from '../src/types';
 import { evaluateParts, ACTIVE_PART_THRESHOLD } from '../src/core/sdfField';
-import { hslToRgb01, mergePartRgb, partRgb } from '../src/aesthetics/partColor';
+import { hslToRgb01, mergePartRgb, partHueOffset, partRgb } from '../src/aesthetics/partColor';
 
 /** Two overlapping spheres (parts 0 & 1) — the cut/morph fork in miniature. */
 function duo(weights: [number, number, number, number, number, number, number, number] = [0.5, 0.5, 0, 0, 0, 0, 0, 0]): SdfParams {
@@ -81,6 +81,18 @@ describe('part colours', () => {
     const maxDiff = Math.max(Math.abs(c0.r - single.r), Math.abs(c0.g - single.g), Math.abs(c0.b - single.b));
     expect(maxDiff).toBeGreaterThan(0.05);
     expect(partRgb(sdf, 0)).toEqual(partRgb(sdf, 0));
+  });
+
+  it('hue spread is capped so the reading’s hue stays the visible centre (amendment 2)', () => {
+    for (let i = 0; i < 8; i += 1) {
+      const off = partHueOffset(i);
+      // Every part stays within ±0.12 (±43°) of the reading's hue — no full-circle jump.
+      expect(Math.abs(off)).toBeLessThanOrEqual(0.121);
+      // And the resulting hue, circularly, stays near the reading's 0.5.
+      const hue = (0.5 + off + 1) % 1;
+      const d = Math.min(Math.abs(hue - 0.5), 1 - Math.abs(hue - 0.5));
+      expect(d).toBeLessThanOrEqual(0.121);
+    }
   });
 
   it('influence-weighted merge stays in range and follows ownership in cut', () => {
