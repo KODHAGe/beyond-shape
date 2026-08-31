@@ -9,8 +9,8 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { RenderStateWire, RunRecord, SdfParams } from '../types';
 import { SeededRng } from '../core/seededRng';
-import { sampleField } from '../core/sdfField';
-import { marchCubes, laplacianSmooth } from './marchingCubes';
+import type { BlendMode } from '../core/sdfField';
+import { getSolidMesh } from './projection';
 import { buildLighting, gradientBackground, paletteFromSdf } from './lighting';
 import { attachTurnHint } from './input';
 
@@ -59,12 +59,13 @@ export function computeRenderState(seed: number, sdf: SdfParams): RenderStateWir
   };
 }
 
-export function physicalMaterial(sdf: SdfParams): THREE.MeshPhysicalMaterial {
+export function physicalMaterial(sdf: SdfParams, perPartColor = false): THREE.MeshPhysicalMaterial {
   const m = sdf.material;
   const hue = (((m.hue % 1) + 1) % 1);
   const color = new THREE.Color().setHSL(hue, Math.min(1, Math.max(0, m.saturation)), Math.min(1, Math.max(0, m.lightness)));
   return new THREE.MeshPhysicalMaterial({
-    color,
+    color: perPartColor ? 0xffffff : color,
+    vertexColors: perPartColor,
     roughness: m.roughness,
     metalness: m.metalness,
     clearcoat: m.clearcoat,
@@ -72,6 +73,14 @@ export function physicalMaterial(sdf: SdfParams): THREE.MeshPhysicalMaterial {
     emissive: new THREE.Color().setHSL(hue, m.saturation, Math.min(0.5, m.emissive * 0.5)),
     emissiveIntensity: m.emissive * 0.4,
   });
+}
+
+export interface SceneOptions {
+  /** 'soft' = smooth morph (FR-7); 'cut' = hard union of active parts (the
+   *  original's overlapping solids). Default 'soft'. */
+  blend?: BlendMode;
+  /** Per-part vertex colours (each voice in its own fabric). Default true. */
+  perPartColor?: boolean;
 }
 
 export interface SceneHandle {
@@ -87,7 +96,7 @@ export interface SceneHandle {
 }
 
 /** One full Three.js scene for a reading (seeded for determinism, FR-10). */
-export function createScene(container: HTMLElement, seed: number, sdf: SdfParams): SceneHandle {
+export function createScene(container: HTMLElement, seed: number, sdf: SdfParams, opts?: SceneOptions): SceneHandle {
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -95,6 +104,8 @@ export function createScene(container: HTMLElement, seed: number, sdf: SdfParams
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   container.appendChild(renderer.domElement);
+  const blend = opts?.blend ?? 'soft';
+  const perPartColor = opts?.perPartColor ?? true;
 
   const scene = new THREE.Scene();
   const camPose = cameraFromSeed(seed);
@@ -173,14 +184,17 @@ export function createScene(container: HTMLElement, seed: number, sdf: SdfParams
         (mesh.material as THREE.Material).dispose();
         mesh = null;
       }
-      const field = sampleField(next);
-      const marched = marchCubes(field, 48, 48, 48, -1.5, 1.5);
-      const smooth = laplacianSmooth(marched.positions, marched.indices, 1);
+      // Shared builder (same mesh both tiers): positions + per-part vertex
+      // colours, in the requested blend mode (soft morph / hard cut).
+      const solid = getSolidMesh(next, blend);
       geometry = new THREE.BufferGeometry();
-      geometry.setAttribute('position', new THREE.BufferAttribute(smooth, 3));
-      geometry.setIndex(new THREE.BufferAttribute(marched.indices, 1));
+      geometry.setAttribute('position', new THREE.BufferAttribute(solid.positions, 3));
+      geometry.setIndex(new THREE.BufferAttribute(solid.indices, 1));
       geometry.computeVertexNormals(); // spec §3.4
-      mesh = new THREE.Mesh(geometry, physicalMaterial(next));
+      if (perPartColor) {
+        geometry.setAttribute('color', new THREE.BufferAttribute(solid.colors, 3));
+      }
+      mesh = new THREE.Mesh(geometry, physicalMaterial(next, perPartColor));
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       scene.add(mesh);
@@ -272,6 +286,10 @@ export interface CellSceneHandle {
 export interface CellSceneOptions {
   /** Presence multiplier: >1 pulls the camera back (small-in-frame), <1 tightens. */
   presence?: number;
+  /** Soft morph (default) or the original's hard-cut overlapping solids. */
+  blend?: BlendMode;
+  /** Per-part vertex colours (default true). */
+  perPartColor?: boolean;
 }
 
 /**
@@ -313,14 +331,14 @@ export function createCellScene(container: HTMLElement, seed: number, sdf: SdfPa
   rim.position.set(-4, 2, -5);
   scene.add(key, fill, rim);
 
-  const field = sampleField(sdf);
-  const marched = marchCubes(field, 48, 48, 48, -1.5, 1.5);
-  const smooth = laplacianSmooth(marched.positions, marched.indices, 1);
+  const solid = getSolidMesh(sdf, opts?.blend ?? 'soft');
+  const perPart = opts?.perPartColor ?? true;
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.BufferAttribute(smooth, 3));
-  geometry.setIndex(new THREE.BufferAttribute(marched.indices, 1));
+  geometry.setAttribute('position', new THREE.BufferAttribute(solid.positions, 3));
+  geometry.setIndex(new THREE.BufferAttribute(solid.indices, 1));
   geometry.computeVertexNormals();
-  const mesh = new THREE.Mesh(geometry, physicalMaterial(sdf));
+  if (perPart) geometry.setAttribute('color', new THREE.BufferAttribute(solid.colors, 3));
+  const mesh = new THREE.Mesh(geometry, physicalMaterial(sdf, perPart));
   scene.add(mesh);
 
   // Frame the actual form (bounding sphere) so any cell centres its object.

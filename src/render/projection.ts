@@ -13,14 +13,17 @@
  */
 
 import type { SdfParams } from '../types';
-import { sampleField } from '../core/sdfField';
+import { sampleField, evaluateParts, type BlendMode } from '../core/sdfField';
 import { marchCubes, laplacianSmooth } from './marchingCubes';
 import { clamp } from '../lib/math';
+import { mergePartRgb } from '../aesthetics/partColor';
 
 export interface SolidMesh {
   positions: Float32Array; // 3 per vertex (smoothed)
   indices: Uint32Array; // triangles
   normals: Float32Array; // field-gradient normals (matched to SMOTHER run? kept raw)
+  colors: Float32Array; // 3 per vertex — per-part influence weighted (soft) or
+  // owning part (cut), computed ONCE (view-independent), shared by both tiers
   radius: number; // bounding radius (for shadow sizing)
 }
 
@@ -69,26 +72,40 @@ export function sdfKey(sdf: SdfParams): string {
 
 const meshCache = new Map<string, SolidMesh>();
 
-/** March + smooth a reading once, cached by sdfKey. Pure (no DOM needed). */
-export function getSolidMesh(sdf: SdfParams): SolidMesh {
-  const key = sdfKey(sdf);
+/**
+ * March + smooth a reading once, cached by (sdfKey, mode). Per-vertex colours
+ * come from each vertex's part influence (soft = weighted blend, cut = owning
+ * part) — view-independent, paid once. Pure (no DOM needed).
+ */
+export function getSolidMesh(sdf: SdfParams, mode: BlendMode = 'soft'): SolidMesh {
+  const key = `${sdfKey(sdf)}:${mode}`;
   const hit = meshCache.get(key);
   if (hit) return hit;
 
-  const field = sampleField(sdf, GRID, -FIELD_RANGE, FIELD_RANGE);
+  const field = sampleField(sdf, GRID, -FIELD_RANGE, FIELD_RANGE, mode);
   const marched = marchCubes(field, GRID, GRID, GRID, -FIELD_RANGE, FIELD_RANGE);
   const smooth = laplacianSmooth(marched.positions, marched.indices, 1);
 
   let radius = 0;
-  for (let i = 0; i < smooth.length; i += 1) {
-    const r = Math.abs(smooth[i]!);
+  const colors = new Float32Array(smooth.length);
+  for (let v = 0; v * 3 < smooth.length; v += 1) {
+    const px = smooth[v * 3] ?? 0;
+    const py = smooth[v * 3 + 1] ?? 0;
+    const pz = smooth[v * 3 + 2] ?? 0;
+    const r = Math.hypot(px, py, pz);
     if (r > radius) radius = r;
+    const { influence } = evaluateParts(sdf, [px, py, pz], mode);
+    const [cr, cg, cb] = mergePartRgb(sdf, influence);
+    colors[v * 3] = cr;
+    colors[v * 3 + 1] = cg;
+    colors[v * 3 + 2] = cb;
   }
 
   const mesh: SolidMesh = {
     positions: smooth,
     indices: marched.indices,
     normals: marched.normals,
+    colors,
     radius,
   };
 
@@ -101,6 +118,9 @@ export function getSolidMesh(sdf: SdfParams): SolidMesh {
 }
 
 export interface ProjectedFace {
+  a: number; // vertex index for colour lookup (SolidMesh.colors)
+  b: number;
+  c: number;
   x0: number; y0: number;
   x1: number; y1: number;
   x2: number; y2: number;
@@ -183,6 +203,9 @@ export function projectFaces(
 
     const zAvg = (rz0b + rz1b + rz2b) / 3;
     out.push({
+      a: indices[t * 3]!,
+      b: indices[t * 3 + 1]!,
+      c: indices[t * 3 + 2]!,
       x0: cx + rx0 * scalePx,
       y0: cy - ry0 * scalePx,
       x1: cx + rx1 * scalePx,
@@ -280,12 +303,28 @@ export function paintSolid(
     ctx.restore();
   }
 
-  // Faces far → near. Color: pastel field from the material, scaled by shade.
+  // Faces far → near. Colour: per-part vertex colours (OWNER in cut mode,
+  // influence-weighted blend in soft mode — see SolidMesh.colors), averaged
+  // per face and scaled by the face shade.
+  const colors = mesh.colors;
+  const usePartColor = colors.length === mesh.positions.length;
   const sat = clamp(0.25 + m.saturation * 0.5, 0, 1);
   const light = clamp(0.7 + m.lightness * 0.25, 0, 1);
   for (const f of faces) {
-    const l = Math.min(1, light * f.shade);
-    ctx.fillStyle = `hsl(${hueDeg} ${Math.round(sat * 100)}% ${Math.round(l * 100)}%)`;
+    if (usePartColor) {
+      const ia = f.a * 3;
+      const ib = f.b * 3;
+      const ic = f.c * 3;
+      const r = ((colors[ia] ?? 0) + (colors[ib] ?? 0) + (colors[ic] ?? 0)) / 3;
+      const g = ((colors[ia + 1] ?? 0) + (colors[ib + 1] ?? 0) + (colors[ic + 1] ?? 0)) / 3;
+      const b = ((colors[ia + 2] ?? 0) + (colors[ib + 2] ?? 0) + (colors[ic + 2] ?? 0)) / 3;
+      const sc = Math.min(1, f.shade * light);
+      ctx.fillStyle = `rgb(${Math.round(clamp(r * sc, 0, 1) * 255)} ${
+        Math.round(clamp(g * sc, 0, 1) * 255)} ${Math.round(clamp(b * sc, 0, 1) * 255)})`;
+    } else {
+      const l = Math.min(1, light * f.shade);
+      ctx.fillStyle = `hsl(${hueDeg} ${Math.round(sat * 100)}% ${Math.round(l * 100)}%)`;
+    }
     ctx.beginPath();
     ctx.moveTo(f.x0, f.y0);
     ctx.lineTo(f.x1, f.y1);

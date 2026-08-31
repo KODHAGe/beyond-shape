@@ -1,8 +1,11 @@
 /**
  * Blended signed-distance field (ADR-4). Evaluates the 8-primitive SDF library
- * on a 48³ grid over [-1.5, 1.5]³ with smooth-min blending driven by the
- * SdfParams weights (softmin via log-sum-exp — the anchor weight 1 reduces to
- * the pure primitive, and mid-weights produce true "between" forms, FR-7).
+ * on a 48³ grid over [-1.5, 1.5]³ with two blend modes driven by the SdfParams
+ * weights:
+ *   - 'soft': smooth-min (softmin via log-sum-exp — anchor weight 1 reduces to
+ *     the pure primitive; mid-weights produce true "between" forms, FR-7);
+ *   - 'cut': the original's overlapping solids — hard union of ACTIVE parts,
+ *     each surface point owned by exactly one part (per-part colouring input).
  *
  * Primitive order is a binding (shared with scripts/train_generator.py and the
  * decoder): 0 sphere · 1 box · 2 roundedBox · 3 cylinder · 4 cone · 5 torus ·
@@ -153,34 +156,84 @@ function primitiveDistance(
   return canonicalDistance(primitive, u, part.displacement) * minScale;
 }
 
+export type BlendMode = 'soft' | 'cut';
+
+/** A part with weight below this is absent in hard-cut mode (present = shape). */
+export const ACTIVE_PART_THRESHOLD = 0.05;
+
+export interface PartEvaluate {
+  d: number;
+  /** 8-vector: each part's share of the surface at p (false/soft) or the
+   *  owning part 1.0 (cut) — the input to per-part colouring. */
+  influence: Float32Array;
+}
+
 /**
- * Smooth-min blend of the 8 primitives with the SdfParams weights.
- * log-sum-exp softmin: at anchor weights (one primitive) it reduces exactly to
- * that primitive; spread weights produce genuine blends (FR-7's midpoint case).
+ * Blend of the 8 primitives + per-part surface influence for colouring.
+ * `mode`:
+ *  - 'soft' — log-sum-exp softmin (current): anchor weight 1 → pure primitive,
+ *    mid-weights → genuine "between" forms (FR-7); influence ∝ exp(−Δ/k).
+ *  - 'cut'  — the original's overlapping solids (ORIGINAL-2019 §Constructor):
+ *    each ACTIVE part (weight > ACTIVE_PART_THRESHOLD) is a solid; the union is
+ *    the hard min, and every surface point belongs to exactly one part (its
+ *    colour) — sharp creases where solids cut each other, dramatic by design.
  */
-export function evaluateSdf(sdfParams: SdfParams, p: Vec3): number {
+export function evaluateParts(sdfParams: SdfParams, p: Vec3, mode: BlendMode = 'soft'): PartEvaluate {
   const k = clamp(sdfParams.blendRadius, 0.05, 0.5);
   const weights = sdfParams.weights;
   if (weights.length !== PRIMITIVE_COUNT) {
     throw new RangeError(`expected ${PRIMITIVE_COUNT} blend weights`);
   }
 
-  // ms[i] = d_i - k·ln(w_i); min-shift keeps exp stable.
+  const influence = new Float32Array(PRIMITIVE_COUNT);
+
+  // Per-part distances (null for zero-weight parts).
+  const ds = new Array<number | null>(PRIMITIVE_COUNT);
+  for (let i = 0; i < PRIMITIVE_COUNT; i += 1) {
+    const w = weights[i] ?? 0;
+    ds[i] = w <= 1e-7 ? null : primitiveDistance(i, p, sdfParams.parts[i]!);
+  }
+
+  if (mode === 'cut') {
+    let best = Infinity;
+    let bestIdx = -1;
+    for (let i = 0; i < PRIMITIVE_COUNT; i += 1) {
+      const d = ds[i];
+      if (d === null || d >= best) continue;
+      if ((weights[i] ?? 0) <= ACTIVE_PART_THRESHOLD) continue;
+      best = d;
+      bestIdx = i;
+    }
+    if (bestIdx < 0) {
+      // No weight passes the threshold — fall back to the min over what exists.
+      for (let i = 0; i < PRIMITIVE_COUNT; i += 1) {
+        const d = ds[i];
+        if (d !== null && d < best) {
+          best = d;
+          bestIdx = i;
+        }
+      }
+    }
+    if (bestIdx >= 0) influence[bestIdx] = 1;
+    return { d: Number.isFinite(best) ? best : FIELD_MAX, influence };
+  }
+
+  // soft mode — ms[i] = d_i − k·ln(w_i); min-shift keeps exp stable.
   let minMs = Infinity;
   const ms = new Array<number>(PRIMITIVE_COUNT);
   for (let i = 0; i < PRIMITIVE_COUNT; i += 1) {
-    const w = weights[i] ?? 0;
-    if (w <= 1e-7) {
+    const d = ds[i];
+    if (d === null) {
       ms[i] = Infinity;
       continue;
     }
-    const d = primitiveDistance(i, p, sdfParams.parts[i]!);
+    const w = weights[i] ?? 0;
     const mi = d - k * Math.log(w);
     ms[i] = mi;
     if (mi < minMs) minMs = mi;
   }
 
-  if (!Number.isFinite(minMs)) return FIELD_MAX; // all weights zero — degenerate
+  if (!Number.isFinite(minMs)) return { d: FIELD_MAX, influence }; // all weights zero
 
   let sum = 0;
   for (let i = 0; i < PRIMITIVE_COUNT; i += 1) {
@@ -188,12 +241,22 @@ export function evaluateSdf(sdfParams: SdfParams, p: Vec3): number {
     if (!Number.isFinite(mi)) continue;
     sum += Math.exp(-(mi - minMs) / k);
   }
+  for (let i = 0; i < PRIMITIVE_COUNT; i += 1) {
+    const mi = ms[i] ?? Infinity;
+    if (!Number.isFinite(mi)) continue;
+    influence[i] = Math.exp(-(mi - minMs) / k) / sum;
+  }
   const d = minMs - k * Math.log(sum);
-  return Number.isFinite(d) ? d : FIELD_MAX;
+  return { d: Number.isFinite(d) ? d : FIELD_MAX, influence };
+}
+
+/** Signed distance only (no influence) — the marching-cubes field. */
+export function evaluateSdf(sdfParams: SdfParams, p: Vec3, mode: BlendMode = 'soft'): number {
+  return evaluateParts(sdfParams, p, mode).d;
 }
 
 /**
- * Sample the blended field on a GRID_N³ grid over [FIELD_MIN, FIELD_MAX]³.
+ * Sample the field on a GRID_N³ grid over [FIELD_MIN, FIELD_MAX]³.
  * Returns a Float32Array ordered (z, y, x) with x fastest — marching-cubes
  * compatible. Values are signed distances: < 0 inside, > 0 outside.
  */
@@ -202,6 +265,7 @@ export function sampleField(
   n: number = GRID_N,
   min: number = FIELD_MIN,
   max: number = FIELD_MAX,
+  mode: BlendMode = 'soft',
 ): Float32Array {
   const out = new Float32Array(n * n * n);
   const step = (max - min) / (n - 1);
@@ -212,7 +276,7 @@ export function sampleField(
       const zy = z * n * n + y * n;
       for (let x = 0; x < n; x += 1) {
         const px = min + x * step;
-        out[zy + x] = evaluateSdf(sdfParams, [px, py, pz]);
+        out[zy + x] = evaluateSdf(sdfParams, [px, py, pz], mode);
       }
     }
   }

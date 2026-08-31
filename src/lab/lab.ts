@@ -10,6 +10,7 @@
 
 import { retune, structureRichness } from '../aesthetics/register';
 import type { RegisterKind } from '../aesthetics/register';
+import type { BlendMode } from '../core/sdfField';
 import { createCellScene } from '../render/scene';
 import { getSolidMesh } from '../render/projection';
 import { attachTurnHint } from '../render/input';
@@ -99,6 +100,9 @@ function buildLab(): void {
 
   const cardDisposers = new Map<string, CardHandle>();
   let forms: LabSeed[] = [];
+  // Aesthetic experiment state (the cut/morph fork + part colours).
+  let blend: BlendMode = 'soft';
+  let partColor = true;
 
   // One "drag to turn" affordance per card, attached once (survives rebuilds).
   const cardHints: SceneDispose[] = [];
@@ -113,8 +117,12 @@ function buildLab(): void {
     return clamp(1.7 - mesh.radius / 1.7, 0.6, 1.7); // small stays small, large stays large
   }
 
-  function buildSceneInto(mount: HTMLElement, sdf: SdfParams, disposers: SceneDispose[]): void {
-    const handle = createCellScene(mount, LAB_SEED, sdf, { presence: presenceOf(sdf) });
+  function buildSceneInto(mount: HTMLElement, sdf: SdfParams, disposers: SceneDispose[], opts: { blend: BlendMode; perPartColor: boolean }): void {
+    const handle = createCellScene(mount, LAB_SEED, sdf, {
+      presence: presenceOf(sdf),
+      blend: opts.blend,
+      perPartColor: opts.perPartColor,
+    });
     const rect = mount.getBoundingClientRect();
     handle.resize(Math.max(1, Math.round(rect.width)), Math.max(1, Math.round(rect.height)));
     disposers.push(() => handle.dispose());
@@ -139,11 +147,12 @@ function buildLab(): void {
       cardHandle = { main: [], stations: [] };
       cardDisposers.set(kind, cardHandle);
     }
+    const sceneOpts = { blend, perPartColor: partColor };
 
     // Main view: the reading at this drift, register-lived.
     const mainMount = card.querySelector('.lab-main') as HTMLElement;
     mainMount.replaceChildren();
-    buildSceneInto(mainMount, retune(form, kind, drift, richness), cardHandle.main);
+    buildSceneInto(mainMount, retune(form, kind, drift, richness), cardHandle.main, sceneOpts);
 
     // Stations: the same reading turned along the spindle (left → right).
     const stationsMount = card.querySelector('.lab-stations') as HTMLElement;
@@ -155,7 +164,7 @@ function buildLab(): void {
       label.textContent = `drift ${stationDrift.toFixed(2)}`;
       cell.append(label);
       stationsMount.appendChild(cell);
-      buildSceneInto(cell, retune(form, kind, stationDrift, richness), cardHandle.stations);
+      buildSceneInto(cell, retune(form, kind, stationDrift, richness), cardHandle.stations, sceneOpts);
     }
   }
 
@@ -244,6 +253,23 @@ function buildLab(): void {
 
   driftInput.addEventListener('input', renderAll);
   sentenceSelect.addEventListener('change', renderAll);
+
+  // Blend fork: soft-morph ⇄ hard-cut (the original's overlapping solids).
+  const blendSeg = document.querySelector('#lab-blend') as HTMLElement;
+  for (const btn of Array.from(blendSeg.querySelectorAll('button'))) {
+    btn.addEventListener('click', () => {
+      blend = (btn.dataset['blend'] as BlendMode) ?? 'soft';
+      for (const b of Array.from(blendSeg.querySelectorAll('button'))) {
+        b.classList.toggle('active', b === btn);
+      }
+      renderAll();
+    });
+  }
+  const partColorInput = document.querySelector('#lab-part-color') as HTMLInputElement;
+  partColorInput.addEventListener('change', () => {
+    partColor = partColorInput.checked;
+    renderAll();
+  });
 
   // Structure control: auto (richness by length) or a manual laboratory scrub.
   const richnessInput = document.querySelector('#lab-richness') as HTMLInputElement;
