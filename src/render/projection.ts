@@ -10,6 +10,12 @@
  * painter, not a rasteriser — the register (soft, pastel, no preset cage)
  * survives in the shading, and the mesh is literally the same one three.js
  * renders when WebGL is available.
+ *
+ * The marching pipeline is mode-dependent: 'soft' marches at 48³ with one
+ * Laplacian pass (the FR-7 smooth morph — a weld would be rounded anyway);
+ * 'cut' marches at 64³ with NO smoothing so the crease where one solid cuts
+ * another stays a real fold instead of being averaged away. Each mode has its
+ * own cache entry, so the two meshes never collide.
  */
 
 import type { SdfParams } from '../types';
@@ -19,7 +25,7 @@ import { clamp } from '../lib/math';
 import { mergePartRgb } from '../aesthetics/partColor';
 
 export interface SolidMesh {
-  positions: Float32Array; // 3 per vertex (smoothed)
+  positions: Float32Array; // 3 per vertex (smoothed in 'soft', raw marched in 'cut')
   indices: Uint32Array; // triangles
   normals: Float32Array; // field-gradient normals (matched to SMOTHER run? kept raw)
   colors: Float32Array; // 3 per vertex — per-part influence weighted (soft) or
@@ -32,9 +38,25 @@ export interface ProjectionView {
   pitch: number;
 }
 
-const GRID = 48;
+const GRID_SOFT = 48;
+const GRID_CUT = 64;
 const FIELD_RANGE = 1.5;
 const MAX_CACHE = 24;
+
+/** Marching resolution per blend mode. Hard-cut seams are folds in the field:
+ *  48³ + smoothing averaged them back into a weld; 64³ resolves the crease.
+ *  The finer grid is paid ONCE per reading+mode (mesh cache), so the only
+ *  repeated cost is memory, not frame time. */
+export function gridForMode(mode: BlendMode): number {
+  return mode === 'cut' ? GRID_CUT : GRID_SOFT;
+}
+
+/** Whether the marched surface gets a Laplacian pass. 'soft' welds are meant
+ *  to read rounded (FR-7); 'cut' must keep its creases raw — the original's
+ *  "overlapping solids" with the seam where they cut made visible. */
+export function smoothingForMode(mode: BlendMode): boolean {
+  return mode === 'cut' ? false : true;
+}
 
 /** FNV-1a 32-bit over the numerically relevant decoded values (not pose).
  *  Values are quantised to 1e-6 so two decodes that differ only in the last
@@ -82,16 +104,21 @@ export function getSolidMesh(sdf: SdfParams, mode: BlendMode = 'soft'): SolidMes
   const hit = meshCache.get(key);
   if (hit) return hit;
 
-  const field = sampleField(sdf, GRID, -FIELD_RANGE, FIELD_RANGE, mode);
-  const marched = marchCubes(field, GRID, GRID, GRID, -FIELD_RANGE, FIELD_RANGE);
-  const smooth = laplacianSmooth(marched.positions, marched.indices, 1);
+  const n = gridForMode(mode);
+  const field = sampleField(sdf, n, -FIELD_RANGE, FIELD_RANGE, mode);
+  const marched = marchCubes(field, n, n, n, -FIELD_RANGE, FIELD_RANGE);
+  // 'cut' keeps the raw marched surface (no Laplacian) so the seam where the
+  // solids cut stays a real crease; 'soft' smooths, its weld reads rounded.
+  const positions = smoothingForMode(mode)
+    ? laplacianSmooth(marched.positions, marched.indices, 1)
+    : marched.positions;
 
   let radius = 0;
-  const colors = new Float32Array(smooth.length);
-  for (let v = 0; v * 3 < smooth.length; v += 1) {
-    const px = smooth[v * 3] ?? 0;
-    const py = smooth[v * 3 + 1] ?? 0;
-    const pz = smooth[v * 3 + 2] ?? 0;
+  const colors = new Float32Array(positions.length);
+  for (let v = 0; v * 3 < positions.length; v += 1) {
+    const px = positions[v * 3] ?? 0;
+    const py = positions[v * 3 + 1] ?? 0;
+    const pz = positions[v * 3 + 2] ?? 0;
     const r = Math.hypot(px, py, pz);
     if (r > radius) radius = r;
     const { influence } = evaluateParts(sdf, [px, py, pz], mode);
@@ -102,7 +129,7 @@ export function getSolidMesh(sdf: SdfParams, mode: BlendMode = 'soft'): SolidMes
   }
 
   const mesh: SolidMesh = {
-    positions: smooth,
+    positions,
     indices: marched.indices,
     normals: marched.normals,
     colors,

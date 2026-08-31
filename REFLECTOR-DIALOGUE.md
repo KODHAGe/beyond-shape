@@ -188,3 +188,57 @@ repetitive" since Phase B, confirmed in the lab). Clamping predX0 to the
 trained |z|≲2 space (deterministic, mirrored in `scripts/verify_voices.py`)
 latches trajectories on-manifold: every reading now surfaces 4–5 live voices,
 and richness-follows-structure holds end to end.
+
+---
+
+## Round VI — the palette, measured (2026-08-31)
+
+**Scene.** The human called the palette the most affecting choice; the next
+step opens with the agent evaluation against the concept (vivid vs pastel,
+arbitrariness of hue, per-part spread). The evaluation is grounded in **real
+decoded data**, not screenshots: all 19 seeds' `sdfParams.material` from
+`public/seed-forms.json`.
+
+**Measured (19 seeds).**
+
+| Axis | Actual | Reading |
+|---|---|---|
+| Saturation | 0.448–0.524 → **spread 0.076** | a *uniform*, not a field — "rain" and "grey ferry fog" wear the same coat |
+| Lightness | 0.658–0.761 (spread 0.103) | narrow, but **structured**: richness 0 → ~0.75, richness 1.0 → ~0.66 — long readings drift deeper |
+| Hue | 0.092–0.924 (spread **0.832**) | the only axis with real per-reading variance |
+| Per-part spread | hue delta up to **1.54 (full circle)**; sat +0.10→+0.36; light ±0.14 | parts can be any colour, unrelated to their reading's hue |
+
+**Reflector.** The flat decoded coat is the *mean of the shapes* — in colour.
+The original refused the average; its Constructor made each data point's part
+carry its own character. A palette that decodes to one saturation for every
+reading, from "rain" to "wasp-jam-summer", repeats the averaged-to-safety the
+piece is supposed to undermine. "Vivid at the edge, quiet at the centre" is a
+**mutation** of the original's register — it has no drift axis there — so it
+must be owned as such, not smuggled. Endorsement of the pastel *field* (QR-4 /
+C7): bias, never clamp — that part is right.
+
+**Concept.** The pastel field holds; what fails is variance. And there is a
+seam to name: the vividness the lab currently shows is **register
+engineering, not the machine's reading**. At the default collision drift (0.55)
+saturation multiplies ×~1.5 and the per-part layer pushes parts to 0.86–1.0 —
+while the raw decoded palette sits at ≈0.50 for all 19 seeds. The viewer sees
+the interpreter's grammar, louder than the machine's own voice. On hue:
+arbitrariness is correct and wide (0.83), but (a) the per-part formula wraps a
+full circle — the part→reading colour relationship is *undiscoverable* — and
+(b) nothing in the UI presents hue-as-convention. Arbitrariness must be
+**shown** (C1; the original's "a reduction of a reduction"), or it reads as
+meaning.
+
+**Verdicts.**
+
+| Axis | Verdict | Condition / amendment |
+|---|---|---|
+| Vivid vs pastel | **amend** | Pastel field stays; saturation needs *decoded edge* — a model-level property (the retune can't invent variance the decoder never made). Ride the item-1 decoder retrain: targets that *use* the band, not centre it. |
+| Arbitrariness of hue | **amend** | Cap the per-part hue delta (keep the reading's hue as visible centre of its parts) OR document the full-wrap rule where viewers can find it. |
+| Per-part spread | **resonant** (cut) | Cut mode's one-hot fabrics keep edges; soft mode RGB-merges toward muddle — watch when part count rises. |
+
+**Handing back.** This is a first agent pass; the amendments enter the
+consensus loop, bound into the item-1 slice (`0.2.1`: blend-as-decoded +
+sat-variance targets, same retrain — denoiser untouched). The human decides at
+review whether "vivid vs pastel" becomes a *recorded variable* of the reading
+or stays a register property. Status: **open — one human decision pending**.

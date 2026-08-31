@@ -2,7 +2,8 @@
  * Three.js scene factory (spec §3.4 / QR-4): ACES + sRGB + PCFSoftShadowMap,
  * MeshPhysicalMaterial from SdfParams, seed-derived camera with a fixed orbit
  * (idle animation opt-in, default OFF — FR-10), mesh from the in-repo marching
- * cubes + one Laplacian smoothing pass + computeVertexNormals.
+ * cubes (48³ + one Laplacian pass for 'soft' morph; 64³ raw for 'cut' creases)
+ * + computeVertexNormals.
  */
 
 import * as THREE from 'three';
