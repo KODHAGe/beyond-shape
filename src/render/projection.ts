@@ -43,6 +43,16 @@ const GRID_CUT = 64;
 const FIELD_RANGE = 1.5;
 const MAX_CACHE = 24;
 
+/**
+ * Declared render grammar (Concept-agreed, Stage-1): the initial view starts a
+ * deterministic ~31° off the object's axis so a solid reads as a VOLUME, not a
+ * single flat face. Same seed → same frame (FR-10). It is not a flattery angle
+ * — the viewer still drags to turn it, and the register's edge stays in the
+ * composition (collisions/seams/drift), never in a flattering pose. Applied to
+ * both tiers (`initialView` canvas yaw and `cameraFromSeed` WebGL azimuth).
+ */
+export const THREE_QUARTER_YAW_OFFSET = 0.55;
+
 /** Marching resolution per blend mode. Hard-cut seams are folds in the field:
  *  48³ + smoothing averaged them back into a weld; 64³ resolves the crease.
  *  The finer grid is paid ONCE per reading+mode (mesh cache), so the only
@@ -374,7 +384,7 @@ export function initialView(drawSeed: number, sdf: SdfParams): ProjectionView {
   let frac = t - Math.floor(t);
   if (frac < 0) frac += 1;
   return {
-    yaw: frac * Math.PI * 2,
+    yaw: frac * Math.PI * 2 + THREE_QUARTER_YAW_OFFSET,
     pitch: clamp(sdf.pose.pitch ?? 0, -1.15, 1.15),
   };
 }

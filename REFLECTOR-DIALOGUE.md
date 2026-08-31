@@ -265,3 +265,26 @@ reading while the register stays pastel.
 - denoiser sha unchanged from 0.2.0; manifest `0.2.1-generated` (slice 3).
 
 **Status: CLOSED — decision recorded, variance shipped as instruction.**
+
+### Renders — three-quarter initial view (Concept verdict, 2026-08-31)
+
+The lab's eye opened (the agent can now see renders). Measuring the dominant
+parts showed the "flat slab" off-forms were NOT degenerate geometry — every
+dominant decodes near-cubic (aspect 0.92–1.00); the box really is a cube. The
+slab was a **presentation** artifact: the seeded camera sometimes lands
+face-on, collapsing a solid to a single flat quad (the register's one failure
+tone: blueprint/utility).
+
+**Concept verdict (Stage 1 on the off-form): `amend`** — fix the *presentation*
+(declared three-quarter bias on the initial view), NOT the geometry (box scale
+is fine) and NOT separation (loosening it would flatten distance-between-shapes
+and average to safety). Conditions: deterministic (FR-10 — same seed, same
+frame); drag-to-turn kept; the register's edge stays in composition, never in a
+flattering angle; faint parts may stay faint. **Reflector: resonant** — the
+original wanted its "regular forms" *shown*; a lone face-on quad is not that.
+
+**Shipped:** `THREE_QUARTER_YAW_OFFSET = 0.55` applied to both tiers
+(`initialView` canvas yaw, `cameraFromSeed` WebGL azimuth). Verified by eye:
+"rain" (a lone cube) reads as a three-faced volume, not a flat square; the fog
+cut-form shows its crease (magenta piece cutting the green box) and its part
+colours. FR-10 determinism e2e still green.

@@ -11,7 +11,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { RenderStateWire, RunRecord, SdfParams } from '../types';
 import { SeededRng } from '../core/seededRng';
 import type { BlendMode } from '../core/sdfField';
-import { getSolidMesh } from './projection';
+import { getSolidMesh, THREE_QUARTER_YAW_OFFSET } from './projection';
 import { buildLighting, gradientBackground, paletteFromSdf } from './lighting';
 import { attachTurnHint } from './input';
 
@@ -33,7 +33,7 @@ function seedBytes(seed: number): Uint8Array {
 function cameraFromSeed(seed: number): { pos: [number, number, number]; target: [number, number, number] } {
   const rng = new SeededRng(seedBytes(seed));
   const radius = 3.6 + rng.nextFloat() * 0.4;
-  const azimuth = rng.nextFloat() * Math.PI * 2;
+  const azimuth = rng.nextFloat() * Math.PI * 2 + THREE_QUARTER_YAW_OFFSET;
   const elevation = (rng.nextFloat() - 0.5) * 0.7;
   const target: [number, number, number] = [0, 0, 0];
   return {

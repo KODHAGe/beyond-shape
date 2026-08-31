@@ -5,8 +5,10 @@
 > (item 3) recorded → **human ruling: PASTEL**; item-1 FULLY SHIPPED incl. the
 > decoder retrain (decoder-v2, manifest **0.2.1-generated**, denoiser untouched)
 > — sat spread 0.567, blend 14 cut/5 soft, blob ripple tamed, voices intact.
-> Origin pushed to `2f50001` + pending commit. Remaining: consensus record §9
-> on the item-1 spec (formality — decision + result recorded in Round VI).
+> **Follow-on:** render off-forms diagnosed (box is a real cube, the "flat slab"
+> was a face-on camera) → Concept-agreed **three-quarter initial view** shipped
+> (`THREE_QUARTER_YAW_OFFSET`, both tiers; verified by eye + FR-10 e2e).
+> Remaining: palette amendments 2/3 (hue wrap cap, show-hue-as-convention).
 > This is a *decision/resume record*, not an implementation spec. Per
 > AGENTS.md §4/§5, the slices below must pass the consensus loop and be
 > converted into an Implementation Spec at resume before dev agents build.
