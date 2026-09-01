@@ -331,3 +331,41 @@ give a reading and it joins the crowd. the forms are the machine's way of
 reading, not a description of your words. the crowd is still forming — you could
 be among the first it learns from."* Gate green (107 unit · lint · typecheck ·
 build · e2e chromium).
+
+### Round VIII — "make it yours": the human's hand on the reading (2026-09-01)
+
+**Problem (human-raised):** the co-creation loop was *selection*, not *shaping* —
+FR-16 literally says the visitor *"shapes a form"*, but we only let them
+keep/adjust/reject the machine's samples. No one can **manipulate the form**;
+it's pure output of our starting point. So there is no *human mapping*.
+
+**Reflector (academic) — `mutates`, owned, concept-faithful.** The original's
+human agency WAS the mapping: the Mapper crowd *defined the correspondence*
+(emotional ↔ visual/spatial; "placing emotionally similar objects closer"), and
+the Constructor rendered from it. Select-only had removed that. Direct
+manipulation restores it — **but** the unit differs (the original crowd *placed*
+across readings; ours *edits within one reading*), a named mutation. Supporting:
+a form you can *handle* (awkwardly, within a vocabulary) is **more** post-optimal
+(a consumable image resists your hand) — provided the controls never become a
+polished property inspector. The theory payoff: the **delta** (machine's proposal
+→ human's tuned form) is a **refinement field** over the sampling space — the
+ideal signal for the aligner (D4)/drift (D5).
+
+**Concept (Curator) — approve, boundary.** (1) C6 held: the machine reads, the
+visitor tunes — the shape stays the machine's; the human corrects its
+expression. (2) C1 strongest form: the visitor **handles the arbitrary
+parameters** (arbitrariness made visible by being movable, not explained).
+(3) FR-16 "shapes a form" now genuinely met. (4) **Boundary:** must stay
+vocabulary-constrained (no free-draw), framed as a conversation, never "make it
+prettier" — or it becomes a form-builder toy.
+
+**Shipped (prototype):** `tune.ts` (voices/separation/lean over weights/offsets/
+pose; DEFAULT_TUNE = machine's read, identity; the state IS the delta) +
+`tunePanel.ts` ("and make it yours" — three expressive controls, "machine's read"
+reset, "your hand: …" summary). App: tunes the primary form live, machine's
+proposal always the base; contribution submits the **tuned form + the tune
+delta**. D1 gains a `tune` column (schema.sql + ALTER applied live). Verified by
+eye: "more one thing · parts apart · leaning" moves the same parts — *handling
+the convention*, not a toy. Gate green (112 unit · lint · typecheck · build ·
+e2e chromium 12 tests). **Open condition:** the controls read slightly "clean" —
+keep the register expressive, not a property inspector.
