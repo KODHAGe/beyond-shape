@@ -12,5 +12,5 @@ pages_build_output_dir = "dist"
 [[d1_databases]]
 binding = "DB"
 database_name = "beyond-shape"
-database_id = "REPLACE_AT_wrangler_d1_create"
+database_id = "2779bf7c-8b52-41f8-9c73-71e8b0443cbc"
 migrations_dir = "schema"

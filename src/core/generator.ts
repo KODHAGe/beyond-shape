@@ -23,7 +23,7 @@ import { ModelMissingError } from '../types';
 import { LazySession, requireModelFile } from './models';
 import { ortSessionOptions } from './ortSession';
 import { createSeededRng, SeededRng } from './seededRng';
-import * as ort from 'onnxruntime-web';
+import * as ort from 'onnxruntime-web/wasm';
 
 export const LATENT_DIM = 64;
 export const COND_DIM = 401; // e 384 + q 16 + structure richness 1 (Phase C, Slice 2)

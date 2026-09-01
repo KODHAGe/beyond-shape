@@ -24,6 +24,11 @@ provider "cloudflare" {}
 resource "cloudflare_d1_database" "beyond_shape" {
   account_id = var.account_id
   name       = "beyond-shape"
+  # The provider default for this is null, which the D1 API rejects on update.
+  # Declare the posture explicitly — no read replicas (single-writer, $0).
+  read_replication = {
+    mode = "disabled"
+  }
 }
 
 # The Pages project the app deploys to. Bound to the same D1 under the

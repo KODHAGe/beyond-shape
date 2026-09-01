@@ -14,7 +14,7 @@ import { ModelMissingError } from '../types';
 import { LazySession, requireModelFile } from './models';
 import { BertTokenizer } from './tokenizer';
 import { ortSessionOptions } from './ortSession';
-import * as ort from 'onnxruntime-web';
+import * as ort from 'onnxruntime-web/wasm';
 
 export const EMBED_DIM = 384;
 

@@ -6,7 +6,7 @@
  * renders" are actually an inference-path problem, not a rendering problem.
  */
 
-import * as ort from 'onnxruntime-web';
+import * as ort from 'onnxruntime-web/wasm';
 import { fetchManifest } from '../core/models';
 import { Embedder } from '../core/embedding';
 import { SensoryHead } from '../core/sensory';

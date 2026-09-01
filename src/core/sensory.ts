@@ -14,7 +14,7 @@ import type { ModelManifest } from '../types';
 import { ModelMissingError, SENSORY_CHANNEL_COUNT } from '../types';
 import { LazySession, requireModelFile, sensoryChannels } from './models';
 import { ortSessionOptions } from './ortSession';
-import * as ort from 'onnxruntime-web';
+import * as ort from 'onnxruntime-web/wasm';
 
 export class SensoryHead {
   private readonly session: LazySession<ort.InferenceSession>;

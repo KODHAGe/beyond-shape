@@ -25,7 +25,7 @@ import type { BlendMode } from './sdfField';
 import { LazySession, requireModelFile } from './models';
 import { ortSessionOptions } from './ortSession';
 import { clamp, softBias, softmax, wrap01, wrapTwoPi } from '../lib/math';
-import * as ort from 'onnxruntime-web';
+import * as ort from 'onnxruntime-web/wasm';
 
 export const PRIMITIVE_COUNT = 8;
 export const BLEND_RADIUS_RANGE: readonly [number, number] = [0.05, 0.5];

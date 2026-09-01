@@ -7,13 +7,17 @@
  * build working — Vite's dev server cannot resolve these from .vite/deps (it
  * returns the SPA fallback HTML, which breaks WebAssembly compilation).
  */
-import * as ort from 'onnxruntime-web';
+import * as ort from 'onnxruntime-web/wasm';
 
 ort.env.wasm.wasmPaths = '/ort-wasm/';
 
 export function ortSessionOptions(): ort.InferenceSession.SessionOptions {
   return {
-    // WebGPU is preferred; WASM is the universal fallback (CR-6 / QR-2).
-    executionProviders: ['webgpu', 'wasm'],
+    // WASM provider only (classic onnxruntime-web/wasm build). The default
+    // onnxruntime-web entry is the WebGPU/JSEP build whose wasm is ~26.5 MiB —
+    // over Cloudflare Pages' 25 MiB single-file cap, so it can't be shipped.
+    // The classic wasm build's wasm is ~13.3 MiB; WASM is the tested fallback
+    // (QR-2). WebGPU inference is a deferred enhancement.
+    executionProviders: ['wasm'],
   };
 }
