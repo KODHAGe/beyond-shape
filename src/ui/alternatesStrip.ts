@@ -34,7 +34,9 @@ export interface AlternatesHandle {
 export function createAlternatesStrip(mount: HTMLElement): AlternatesHandle {
   mount.className = 'bs-alternates';
   const title = document.createElement('h3');
-  title.textContent = 'also near: three other readings';
+  // FR-9: the alternates are OTHER READINGS of the SAME sentence (same words, a
+  // few seeds), not other sentences — made explicit so the strip isn't vague.
+  title.textContent = 'the same words, read a few other ways';
   const container = document.createElement('div');
   container.className = 'bs-alternates-row';
   mount.append(title, container);

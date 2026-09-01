@@ -197,7 +197,13 @@ export function projectFaces(
   const sinY = Math.sin(view.yaw);
   const cosP = Math.cos(view.pitch);
   const sinP = Math.sin(view.pitch);
-  const scalePx = (Math.min(paint.width, paint.height) / 3.0) * (paint.scale ?? 1);
+  // Fit the mesh's BOUNDING SPHERE to ~90% of the smaller canvas half-dimension.
+  // The old fixed `min/3` ignored the form's radius, so large / drift-separated
+  // forms clipped at the frame edge (e.g. high-drift collision). `paint.scale`
+  // (the alternates' presence control) still multiplies on top.
+  const fitHalf = (Math.min(paint.width, paint.height) / 2) * 0.9;
+  const radius = mesh.radius || 1;
+  const scalePx = (fitHalf / radius) * (paint.scale ?? 1);
   const cx = paint.width / 2;
   const cy = paint.height / 2;
 

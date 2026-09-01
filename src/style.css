@@ -228,6 +228,12 @@ canvas.bs-dragging {
   margin: 0 0 8px;
 }
 
+.bs-marginalia-constellation-label {
+  margin: 8px 0 4px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
 .bs-marginalia-constellation {
   list-style: none;
   padding: 0;

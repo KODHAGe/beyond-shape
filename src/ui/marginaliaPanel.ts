@@ -54,7 +54,10 @@ function el(tag: string, className: string, text?: string): HTMLElement {
 export function createMarginaliaPanel(mount: HTMLElement): MarginaliaHandle {
   mount.className = 'bs-marginalia';
   const title = el('h2', 'bs-marginalia-title', "a stranger's reading");
-  const subtitle = el('p', 'bs-marginalia-sub', 'whose crowd is this nearest');
+  // The marginalia compares YOUR reading against the CROWD's readings (seeds +
+  // contributions) — "which other reading is closest to yours" — not a vague
+  // "whose crowd" (the crowd was defined once in the header).
+  const subtitle = el('p', 'bs-marginalia-sub', 'which reading in the crowd is closest to yours');
   // Amendment 3 (Round VI): the colour grammar is written plainly — each hue is
   // an arbitrary convention handed to a voice, never a description of the words.
   const caption = el(
@@ -90,7 +93,8 @@ export function createMarginaliaPanel(mount: HTMLElement): MarginaliaHandle {
       item.append(document.createTextNode(' '), dist);
       constellation.appendChild(item);
     }
-    crowd.textContent = `this reading is closest to "${nearestE.seed.text}" (nearest ${pos + 1} of ${notes.length}).`;
+    crowd.textContent = `your reading sits closest to "${nearestE.seed.text}" (${pos + 1} of ${notes.length} in the crowd).`;
+    const label = el('p', 'bs-marginalia-constellation-label', 'the crowd, ordered by closeness to your reading:');
 
     if (nearestE.cosE > MARGINAL_NOTE_THRESHOLD) {
       note.textContent = nearestE.note;
@@ -99,7 +103,7 @@ export function createMarginaliaPanel(mount: HTMLElement): MarginaliaHandle {
       note.hidden = true;
     }
 
-    body.append(crowd, constellation);
+    body.append(crowd, label, constellation);
   }
 
   return { render };
