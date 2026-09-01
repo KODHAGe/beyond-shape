@@ -43,6 +43,17 @@ playwright-report/
 __pycache__/
 *.pyc
 
+# Terraform (infra as code, infra/terraform/) — state and provider dirs are local
+infra/terraform/.terraform/
+infra/terraform/*.tfstate
+infra/terraform/*.tfstate.*
+infra/terraform/terraform.tfvars
+infra/terraform/terraform.tfvars.json
+*.tfplan
+
+# Cloudflare credentials for local infra commands — source ./.cf.env, never commit
+.cf.env
+
 # Logs
 *.log
 npm-debug.log*

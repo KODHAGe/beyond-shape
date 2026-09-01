@@ -9,11 +9,13 @@ Owner: Tech Agent · Date: 2026-08-31
 > required for this slice).
 > The DR rules (§ requirements) are load-bearing and must pass the Requirements
 > lens (DR-1..DR-3) — never built without it (EXECUTION-PLAN invariant).
-> **Deploy note:** `wrangler.toml` D1 binding has a placeholder `database_id`;
-> run `wrangler d1 create beyond-shape` once, paste the id, then
-> `wrangler d1 migrations apply beyond-shape --local` (or `--remote`) to create
-> the `contributions` table. Local verification: `wrangler pages dev` (miniflare
-> D1). The `vite preview` e2e suite mocks `POST /api/contribute`.
+> **Deploy note (infra as code):** `infra/terraform/main.tf` owns the D1
+> database, the Pages project + its `DB` binding, and the schema migration.
+> Apply once with `terraform init && terraform apply` (export
+> `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID`, or source `./.cf.env`).
+> Deploy the app with `npm run deploy:pages`. Local dev of the function uses
+> `wrangler pages dev` with local miniflare D1 (wrangler.toml binding). The
+> `vite preview` e2e suite mocks `POST /api/contribute`.
 
 ---
 

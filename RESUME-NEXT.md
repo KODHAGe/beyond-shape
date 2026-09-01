@@ -11,8 +11,11 @@
 > `contributions` schema + consent-gated edge write path (`functions/api/
 > contribute.ts`, DR-1/2/3), D2 plain-language CC BY-SA opt-in, D3 co-creation
 > loop (keep/try another/not this one → share). Local-first proven (no transmit
-> until opt-in + share; e2e). **Deploy note:** create the D1 db + apply
-> migrations; remaining Phase D = aligner (D4) + weekly drift (D5).
+> until opt-in + share; e2e). **Deploy = infra as code (Terraform
+> `infra/terraform/`):** `terraform apply` creates the D1 + Pages project +
+> binding + migration; `npm run deploy:pages` ships the app. Only secret =
+> `CLOUDFLARE_API_TOKEN` in `./.cf.env` (gitignored). Remaining Phase D =
+> aligner (D4) + weekly drift (D5).
 > This is a *decision/resume record*, not an implementation spec. Per
 > AGENTS.md §4/§5, the slices below must pass the consensus loop and be
 > converted into an Implementation Spec at resume before dev agents build.
