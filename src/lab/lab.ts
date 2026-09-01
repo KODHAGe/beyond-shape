@@ -125,7 +125,10 @@ function buildLab(): void {
 
   function presenceOf(sdf: SdfParams): number {
     const mesh = getSolidMesh(sdf);
-    return clamp(1.7 - mesh.radius / 1.7, 0.6, 1.7); // small stays small, large stays large
+    // A gentle 1..1.7 "how much it fills the cell" — clamp to ≥ 1 so presence
+    // never tightens the camera below the FOV fit (old 0.6 floor clipped large
+    // forms). "large stays large, small stays small" (small forms pull back).
+    return clamp(1.7 - mesh.radius / 1.7, 1.0, 1.7);
   }
 
   function buildSceneInto(mount: HTMLElement, sdf: SdfParams, disposers: SceneDispose[], opts: { blend: BlendMode; perPartColor: boolean }): void {

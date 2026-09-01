@@ -215,10 +215,13 @@ describe('pure-solids cut path', () => {
 });
 
 describe('projectFaces', () => {
-  it('produces one face per triangle, sorted far→near, finite and shaded', () => {
+  it('projects the visible faces, sorted far→near, finite and shaded (backface culled)', () => {
     const mesh = getSolidMesh(sphereFixture());
     const faces = projectFaces(mesh, { yaw: 0.6, pitch: 0.3 }, { width: 200, height: 200 });
-    expect(faces.length).toBe(mesh.indices.length / 3);
+    // Backfaces are culled, so fewer than the full triangle count — but a real,
+    // visible front hemisphere remains.
+    expect(faces.length).toBeGreaterThan(0);
+    expect(faces.length).toBeLessThan(mesh.indices.length / 3);
     for (let i = 1; i < faces.length; i += 1) {
       expect(faces[i - 1]!.z >= faces[i]!.z).toBe(true);
     }

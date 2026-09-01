@@ -154,7 +154,11 @@ export function createScene(container: HTMLElement, seed: number, sdf: SdfParams
     const dir = new THREE.Vector3().subVectors(camera.position, controls.target);
     if (dir.lengthSq() < 1e-9) dir.set(0, 1, 0);
     dir.normalize();
-    const distance = Math.max(2.6, sphere.radius * 2.85);
+    // FOV-correct fit: the bounding sphere's projected radius must fit within
+    // the view frustum, with a little margin (old `radius * 2.85` was a
+    // constant heuristic that clipped very large / drift-separated forms).
+    const fit = sphere.radius / Math.tan((CAMERA_FOV * Math.PI) / 360) * 1.12;
+    const distance = Math.max(2.6, fit);
     const centre = sphere.center;
     controls.target.copy(centre);
     camera.position.copy(centre).addScaledVector(dir, distance);
@@ -347,8 +351,11 @@ export function createCellScene(container: HTMLElement, seed: number, sdf: SdfPa
   const sphere = geometry.boundingSphere;
   if (sphere && sphere.radius > 0) {
     const dir = new THREE.Vector3().subVectors(camera.position, controls.target).normalize();
-    const presence = opts?.presence ?? 1;
-    const distance = Math.max(2.4, sphere.radius * 3.0 * presence);
+    const presence = Math.max(1, opts?.presence ?? 1); // never tighten below fit
+    // FOV-correct fit so a large form never clips the cell frame (old
+    // `radius * 3.0 * presence` tightened presence<1 and cut large forms).
+    const fit = sphere.radius / Math.tan((CAMERA_FOV * Math.PI) / 360) * 1.12;
+    const distance = Math.max(2.4, fit * presence);
     controls.target.copy(sphere.center);
     camera.position.copy(sphere.center).addScaledVector(dir, distance);
     camera.lookAt(sphere.center);

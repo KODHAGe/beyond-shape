@@ -201,7 +201,7 @@ export function projectFaces(
   // The old fixed `min/3` ignored the form's radius, so large / drift-separated
   // forms clipped at the frame edge (e.g. high-drift collision). `paint.scale`
   // (the alternates' presence control) still multiplies on top.
-  const fitHalf = (Math.min(paint.width, paint.height) / 2) * 0.9;
+  const fitHalf = (Math.min(paint.width, paint.height) / 2) * 0.85;
   const radius = mesh.radius || 1;
   const scalePx = (fitHalf / radius) * (paint.scale ?? 1);
   const cx = paint.width / 2;
@@ -244,6 +244,13 @@ export function projectFaces(
     if (nl > 1e-9) {
       nx /= nl; ny /= nl; nz /= nl;
     }
+
+    // Backface CULL by the face's OWN up-to-the-winding orientation (larger
+    // view z = farther; an outward normal with view z > ε faces away → skip).
+    // The painter used to draw BOTH sides, so turning a form you saw inside it;
+    // culling the far side fixes that while a small epsilon keeps near-silhouette
+    // faces (so no pinholes at the rim).
+    if (nz > 0.02) continue;
 
     const dot = Math.abs((nx * LIGHT_X + ny * LIGHT_Y + nz * LIGHT_Z) / LIGHT_LEN);
     const shade = 0.55 + 0.45 * clamp(dot, 0, 1);
