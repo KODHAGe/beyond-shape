@@ -26,6 +26,7 @@ export interface ContributionBody {
   fingerprint: string;
   register: string;
   blend_mode: string;
+  tune?: Record<string, unknown>;
 }
 
 function isString(v: unknown): v is string {
@@ -53,6 +54,7 @@ export function validateContribution(body: unknown): string | null {
   if (!isString(b.fingerprint)) return 'fingerprint required';
   if (!isString(b.register)) return 'register required';
   if (!isString(b.blend_mode) || !BLEND_MODES.has(b.blend_mode)) return 'blend_mode required';
+  if (b.tune !== undefined && (typeof b.tune !== 'object' || b.tune === null)) return 'tune invalid';
   return null;
 }
 
@@ -67,8 +69,8 @@ export async function handleContribution(db: DbLike, body: unknown): Promise<Res
   const sql =
     'INSERT INTO contributions ' +
     '(id, created_at, contributor_anon_id, input_text, text_sha256, form_params, ' +
-    'z, drift, seed, gradient, consent_flag, fingerprint, register, blend_mode) ' +
-    'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+    'z, drift, seed, gradient, consent_flag, fingerprint, register, blend_mode, tune) ' +
+    'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
   const values = [
     id,
     Date.now(),
@@ -84,6 +86,7 @@ export async function handleContribution(db: DbLike, body: unknown): Promise<Res
     b.fingerprint,
     b.register,
     b.blend_mode,
+    b.tune ? JSON.stringify(b.tune) : null,
   ];
   await db.prepare(sql).bind(...values).run();
   return Response.json({ ok: true, id }, { status: 200 });

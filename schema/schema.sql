@@ -20,7 +20,9 @@ CREATE TABLE IF NOT EXISTS contributions (
   consent_flag INTEGER NOT NULL CHECK (consent_flag IN (0,1)),
   fingerprint TEXT NOT NULL,                 -- sha256(text|drift|seed) — FR-10 trace
   register TEXT NOT NULL,                    -- the register the form wore
-  blend_mode TEXT NOT NULL                   -- the decoded surface mode
+  blend_mode TEXT NOT NULL,                  -- the decoded surface mode
+  tune TEXT                                  -- JSON: the visitor's hand (FR-16) — the delta
+                                             -- from the machine's proposal to the tuned form
 );
 
 -- For aggregation ("state of the consensus", FR-23) — NOT unique: append-only

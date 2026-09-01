@@ -23,6 +23,8 @@ export interface ContributionPayload {
   fingerprint: string;
   register: string;
   blend_mode: 'soft' | 'cut';
+  /** The visitor's hand (FR-16) — the delta from the machine's proposal. */
+  tune?: { voices: number; separation: number; lean: number };
 }
 
 export interface ContributionResponse {
@@ -75,13 +77,22 @@ export async function textSha256(text: string): Promise<string> {
 export function buildContribution(
   run: RunRecord,
   gradient: 'accept' | 'reject',
-  opts: { contributorId: string; textSha256: string; consent: boolean; register: string },
+  opts: {
+    contributorId: string;
+    textSha256: string;
+    consent: boolean;
+    register: string;
+    /** The ACCEPTED form — the tuned reading if the visitor shaped it, else the machine's. */
+    formParams?: SdfParams;
+    /** The tune delta (FR-16) — the direction the visitor pushed the reading. */
+    tune?: { voices: number; separation: number; lean: number };
+  },
 ): ContributionPayload {
   return {
     contributor_anon_id: opts.contributorId,
     input_text: run.inputText,
     text_sha256: opts.textSha256,
-    form_params: run.sdfParams,
+    form_params: opts.formParams ?? run.sdfParams,
     z: Array.from(run.z),
     drift: run.drift,
     seed: run.seed,
@@ -90,6 +101,7 @@ export function buildContribution(
     fingerprint: run.fingerprint,
     register: opts.register,
     blend_mode: run.sdfParams.blendMode ?? 'soft',
+    tune: opts.tune,
   };
 }
 

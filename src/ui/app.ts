@@ -28,6 +28,8 @@ import { Progress } from './progress';
 import { createMarginaliaPanel, computeMarginality } from './marginaliaPanel';
 import { createAlternatesStrip, type AlternateCell } from './alternatesStrip';
 import { createCoCreation } from './coCreation';
+import { createTunePanel } from './tunePanel';
+import { tuneSdf, DEFAULT_TUNE, type TuneState } from '../aesthetics/tune';
 import {
   buildContribution,
   contributorId,
@@ -189,21 +191,44 @@ export async function mountApp(root: HTMLElement): Promise<AppHandle> {
       commitRun();
     },
     // The ONLY outbound call: an explicit share, gated on the opt-in (DR-2).
+    // It submits the TUNED reading (the human's hand) + the tune delta — the
+    // refinement field the aligner learns from.
     async onSubmit(gradient, consented) {
       if (!currentRun) return false;
       try {
         const sha = await textSha256(currentRun.inputText);
+        const acceptedSdf = currentTunedSdf ?? currentRun.sdfParams;
         const payload = buildContribution(currentRun, gradient, {
           contributorId: contributorId(),
           textSha256: sha,
           consent: consented,
           register: REGISTER,
+          formParams: acceptedSdf,
+          tune: currentTuneState,
         });
         const res = await submitContribution(payload);
         return res.ok === true;
       } catch {
         return false;
       }
+    },
+  });
+
+  // "Make it yours" (FR-16): the visitor tunes the machine's reading within its
+  // own vocabulary; neutral = the machine's read. Tuning re-renders the primary
+  // form live; the machine's proposal stays the base (the contribution records
+  // the tuned form + the delta).
+  const tuneMount = document.createElement('div');
+  tuneMount.hidden = true;
+  root.appendChild(tuneMount);
+  let currentTunedSdf: SdfParams | null = null;
+  let currentTuneState: TuneState = DEFAULT_TUNE;
+  const tune = createTunePanel(tuneMount, {
+    onTune(t) {
+      if (!currentRun) return;
+      currentTuneState = t;
+      currentTunedSdf = tuneSdf(currentRun.sdfParams, t);
+      renderer.showSdf(currentTunedSdf, currentRun.seed);
     },
   });
 
@@ -357,6 +382,12 @@ export async function mountApp(root: HTMLElement): Promise<AppHandle> {
       readingLabel.hidden = false;
       coCreation.reset();
       coCreation.show();
+      // "Make it yours": reset to the machine's read (already rendered); the
+      // tune panel lets the visitor shape it before judging.
+      currentTunedSdf = null;
+      currentTuneState = DEFAULT_TUNE;
+      tune.reset();
+      tuneMount.hidden = false;
     } catch (err) {
       if (!preview) {
         if (err instanceof ModelMissingError) {
