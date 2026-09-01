@@ -186,7 +186,7 @@ export async function mountApp(root: HTMLElement): Promise<AppHandle> {
     onAdjust() {
       const nextSeed = Math.max(1, (currentRun?.seed ?? Math.floor(Number(seed.value) || 42)) + 1);
       seed.value = String(nextSeed);
-      void runOnce();
+      commitRun();
     },
     // The ONLY outbound call: an explicit share, gated on the opt-in (DR-2).
     async onSubmit(gradient, consented) {
@@ -226,10 +226,55 @@ export async function mountApp(root: HTMLElement): Promise<AppHandle> {
     statusLine.textContent = message;
   }
 
-  async function runOnce(): Promise<void> {
+  // ── Live typing: reuse the ONNX wrappers so a debounced run doesn't re-warm.
+  interface ModelSet {
+    embedder: Embedder;
+    sensory: SensoryHead;
+    denoiser: OnnxDenoiser;
+    decoder: Decoder;
+  }
+  let models: ModelSet | null = null;
+  async function getModels(m: ModelManifest): Promise<ModelSet> {
+    if (!models) {
+      models = {
+        embedder: new Embedder(m),
+        sensory: new SensoryHead(m),
+        denoiser: new OnnxDenoiser(m),
+        decoder: new Decoder(m),
+      };
+    }
+    return models;
+  }
+
+  // The pipeline is the cost (~1–2s after warm-up), so debounce and don't run
+  // concurrently. A live run renders the reading; "make a form" is the commit.
+  let busy = false;
+  let pendingLive = false;
+  let liveTimer: ReturnType<typeof setTimeout> | null = null;
+  const LIVE_DEBOUNCE_MS = 700;
+  function scheduleLiveRun(): void {
+    if (liveTimer) clearTimeout(liveTimer);
+    if (!textarea.value.trim()) return;
+    liveTimer = setTimeout(() => void runOnce(true), LIVE_DEBOUNCE_MS);
+  }
+
+  // The explicit commit ("make a form" / "try another" / ⌘↵): cancel any
+  // pending live re-run so a just-committed reading (or a just-shared
+  // contribution) is never clobbered by a stale debounce.
+  function commitRun(): void {
+    if (liveTimer) clearTimeout(liveTimer);
+    pendingLive = false;
+    void runOnce(false);
+  }
+
+  async function runOnce(preview = false): Promise<void> {
+    if (busy) {
+      if (preview) pendingLive = true;
+      return;
+    }
     const text = textarea.value.trim();
     if (!text) {
-      line('type a sentence first.');
+      if (!preview) line('type a sentence first.');
       return;
     }
     const driftValue = Math.min(1, Math.max(0, Number(drift.value) || DRIFT_DEFAULT));
@@ -238,20 +283,20 @@ export async function mountApp(root: HTMLElement): Promise<AppHandle> {
       ? crypto.randomUUID()
       : `run-${Date.now()}`;
 
-    progress.reset();
-    progress.setStage('run', 'active');
-    runButton.disabled = true;
+    busy = true;
+    if (!preview) {
+      progress.reset();
+      progress.setStage('run', 'active');
+      runButton.disabled = true;
+    }
     try {
       if (!manifest) await loadStatic();
       const m = manifest as ModelManifest;
-      progress.setStage('models', 'active');
-      const embedder = new Embedder(m);
-      const sensory = new SensoryHead(m);
-      const denoiser = new OnnxDenoiser(m);
-      const decoder = new Decoder(m);
+      if (!preview) progress.setStage('models', 'active');
+      const { embedder, sensory, denoiser, decoder } = await getModels(m);
 
       const e = await embedder.embed(text);
-      progress.setStage('models', 'done');
+      if (!preview) progress.setStage('models', 'done');
       // Structure signal (Phase C §3): "richness follows structure" — derived
       // on-device from WordPiece ids; deterministic, never transmitted (FR-5).
       const richness = structureRichness(await embedder.tokenCount(text));
@@ -300,47 +345,64 @@ export async function mountApp(root: HTMLElement): Promise<AppHandle> {
         createdAt: Date.now(),
         webgl: renderer.kind === 'webgl',
       };
-      store.add(run);
+      if (!preview) store.add(run);
       renderer.show(run);
       alternates.render(cells, renderer.kind);
 
       const notes = computeMarginality(e, z, seedForms);
       marginalia.render(run, notes, seedForms);
-      line(`this run's hash: ${fp.slice(0, 16)}… (same words, same knob, same seed — same form)`);
+      if (!preview) line(`this run's hash: ${fp.slice(0, 16)}… (same words, same knob, same seed — same form)`);
       // The crowd's hand (FR-16): judge the reading that just arrived.
       currentRun = run;
       readingLabel.hidden = false;
       coCreation.reset();
       coCreation.show();
     } catch (err) {
-      if (err instanceof ModelMissingError) {
-        progress.setStage('models', 'error');
-        if (/not available/.test(err.message)) {
-          // Truly absent binaries → honest interim (LR-3 / AMEND-1); the
-          // directive lives only in the dev console.
-          progress.message('the machines are still sleeping; this sentence will find a form once the models are built.', 'error');
-          console.warn('models not built yet — run scripts/train_generator.py');
-          line('even so — a crowd is forming, one reading at a time.');
-        } else {
-          // A real load/run failure — show the cause, never hide it behind
-          // the sleeping copy.
+      if (!preview) {
+        if (err instanceof ModelMissingError) {
+          progress.setStage('models', 'error');
+          if (/not available/.test(err.message)) {
+            // Truly absent binaries → honest interim (LR-3 / AMEND-1); the
+            // directive lives only in the dev console.
+            progress.message('the machines are still sleeping; this sentence will find a form once the models are built.', 'error');
+            console.warn('models not built yet — run scripts/train_generator.py');
+            line('even so — a crowd is forming, one reading at a time.');
+          } else {
+            // A real load/run failure — show the cause, never hide it behind
+            // the sleeping copy.
+            progress.message(`something wasn't ready: ${err.message}`, 'error');
+            console.warn('run failed', err);
+          }
+        } else if (err instanceof Error) {
           progress.message(`something wasn't ready: ${err.message}`, 'error');
           console.warn('run failed', err);
         }
-      } else if (err instanceof Error) {
-        progress.message(`something wasn't ready: ${err.message}`, 'error');
-        console.warn('run failed', err);
+      } else {
+        // Live preview: keep the last good reading; never surface an error on
+        // every keystroke.
+        console.warn('live reading failed', err);
       }
     } finally {
-      runButton.disabled = false;
-      progress.setStage('run', 'done');
+      if (!preview) {
+        runButton.disabled = false;
+        progress.setStage('run', 'done');
+      }
+      busy = false;
+      if (pendingLive) {
+        pendingLive = false;
+        void runOnce(true);
+      }
     }
   }
 
-  runButton.addEventListener('click', () => void runOnce());
+  runButton.addEventListener('click', commitRun);
   textarea.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) void runOnce();
+    if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) commitRun();
   });
+  // Live typing: a debounced reading as you pause; the button stays the commit.
+  textarea.addEventListener('input', scheduleLiveRun);
+  drift.addEventListener('input', scheduleLiveRun);
+  seed.addEventListener('input', scheduleLiveRun);
 
   // Bootstrap: manifest + seed corpus + initial warm state.
   void loadStatic().catch((err: Error) => {
