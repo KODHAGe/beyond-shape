@@ -288,3 +288,46 @@ original wanted its "regular forms" *shown*; a lone face-on quad is not that.
 "rain" (a lone cube) reads as a three-faced volume, not a flat square; the fog
 cut-form shows its crease (magenta piece cutting the green box) and its part
 colours. FR-10 determinism e2e still green.
+
+### Round VII — the visitor loop, made legible (2026-09-01)
+
+**Problem (human-raised):** what the visitor is *doing* is never clear. Input
+and output are unlabelled, "the crowd" is named three times but never defined,
+and the contribution act reads as a consent wall ("published openly under
+CC BY-SA") rather than a meaningful act. The loop that is the point of the
+piece (words → machine reading → visitor's judgment → the crowd learns) is
+invisible.
+
+**Reflector (academic) — verdict: `resonant` with a hard condition; `mutates`
+for the crowd model.** The original is a *post-optimal object* and
+*"affective over explanatory"* — it chose *user-unfriendliness to provoke*,
+*designed ambiguity of the relation between the represented and its
+representation*, and *"eliminating readability… truth in meaning over truth in
+data."* So clarity is a real risk. But the original never hid the *machinery* —
+the machine *"does not take the accuracy of quantification as a given and
+admits to possible shortcomings,"* and shows *"a reduction of a reduction."*
+Clarifying *who reads and who judges* is showing the machinery honestly:
+**resonant.** What the original keeps deliberately ambiguous is **meaning**
+(the relation between text and form) — **the condition:** clarify the
+mechanism, never the meaning. The crowd model is a **`mutates`**: the original's
+Mapper crowd *placed* ("placing emotionally similar objects closer"); ours
+*reads* (gives readings) and the mapping is derived later (the aligner, D4).
+Owned, not smuggled.
+
+**Concept (Curator) — `approve`, amended.** (1) Arbitrariness visible via "the
+crowd is everyone's readings" + "not a description of your words." (2) Meaning
+*occasioned* by the visitor's judgment, never claimed by the form. (3) Neutral
+on form variance. (4) Register: plain, warm; strip the project's internal jargon
+(convention-crystallizer, living distribution) from the UI. (5) Structure not
+adjectives. Amendments: define the crowd **once**, keep it short and light
+(affective over explanatory), never imply the form describes the words.
+
+**Shipped:** crowd defined once in the subtitle; drift knob = "how close to the
+crowd's way of reading?" with "0 = the machine's edge · 1 = the crowd's centre";
+output labelled "the machine's reading of your sentence:"; the co-creation panel
+opens "your hand — does this reading land?"; contribution reframed as a teaching
+gift — "give this reading to the crowd" with *"this is how the machine learns:
+give a reading and it joins the crowd. the forms are the machine's way of
+reading, not a description of your words. the crowd is still forming — you could
+be among the first it learns from."* Gate green (107 unit · lint · typecheck ·
+build · e2e chromium).

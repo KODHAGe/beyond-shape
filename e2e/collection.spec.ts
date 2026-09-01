@@ -39,11 +39,11 @@ test('collection: the loop stays local until an explicit opt-in + share (DR-2)',
   expect(posts).toBe(0);
 
   // The share is gated: without the opt-in it is disabled (DR-2).
-  await expect(page.locator('button:has-text("share to the crowd")')).toBeDisabled();
+  await expect(page.locator('button:has-text("give this reading to the crowd")')).toBeDisabled();
 
   // Explicit opt-in + share fires exactly ONE POST carrying consent + the text.
   await page.check('.bs-cocreation-consent input[type="checkbox"]');
-  await page.getByRole('button', { name: 'share to the crowd' }).click();
+  await page.getByRole('button', { name: 'give this reading to the crowd' }).click();
   await expect(page.locator('.bs-cocreation-result')).toContainText('in the crowd now', { timeout: 15_000 });
   expect(posts).toBe(1);
 

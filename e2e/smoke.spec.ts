@@ -8,5 +8,5 @@ test('index loads and shows the UI heading', async ({ page }) => {
   await expect(heading).toContainText('beyond shape');
   // Shell is interactive enough to show the run controls.
   await expect(page.locator('#bs-prompt')).toBeVisible();
-  await expect(page.getByLabel('how close to the crowd?')).toBeVisible();
+  await expect(page.getByLabel('how close to the crowd\u2019s way of reading?')).toBeVisible();
 });

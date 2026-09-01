@@ -39,6 +39,13 @@ body {
   color: var(--muted);
 }
 
+.bs-sub {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  max-width: 40em;
+}
+
 .bs-placeholder {
   color: var(--muted);
   font-style: italic;
@@ -72,6 +79,11 @@ body {
 .bs-drift-value {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+
+.bs-drift-hint {
+  color: var(--muted);
+  font-size: 0.78rem;
 }
 
 .bs-form button {
@@ -254,6 +266,12 @@ canvas.bs-dragging {
 }
 
 /* ── Collection (Phase D): the co-creation loop + consent (DR-2, FR-16/17) ── */
+.bs-reading-label {
+  margin: 14px 0 6px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
 .bs-cocreation {
   margin-top: 10px;
   display: grid;
@@ -262,6 +280,11 @@ canvas.bs-dragging {
   background: rgba(255, 255, 255, 0.6);
   border-radius: 14px;
   border: 1px solid rgba(255, 158, 199, 0.35);
+}
+.bs-cocreation-heading {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--ink);
 }
 .bs-cocreation-judge {
   display: flex;

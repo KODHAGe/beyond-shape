@@ -56,7 +56,13 @@ export async function mountApp(root: HTMLElement): Promise<AppHandle> {
   const tagline = document.createElement('p');
   tagline.className = 'bs-tagline';
   tagline.textContent = 'type a sentence · watch a form arrive';
-  header.append(h1, tagline);
+  const sub = document.createElement('p');
+  sub.className = 'bs-sub';
+  // The crowd, defined ONCE, plainly — so "how close to the crowd?" and
+  // "whose crowd is this nearest" and "give this reading to the crowd" all
+  // land. The machine reads; the crowd is everyone's readings (C6).
+  sub.textContent = 'the machine reads as one reader among many — the crowd is everyone\u2019s readings.';
+  header.append(h1, tagline, sub);
   root.appendChild(header);
 
   const stageLine = document.createElement('p');
@@ -81,7 +87,7 @@ export async function mountApp(root: HTMLElement): Promise<AppHandle> {
 
   const driftLabel = document.createElement('label');
   driftLabel.htmlFor = 'bs-drift';
-  driftLabel.textContent = 'how close to the crowd?';
+  driftLabel.textContent = 'how close to the crowd\u2019s way of reading?';
   const drift = document.createElement('input');
   drift.id = 'bs-drift';
   drift.type = 'range';
@@ -95,7 +101,10 @@ export async function mountApp(root: HTMLElement): Promise<AppHandle> {
   drift.addEventListener('input', () => {
     driftReadout.textContent = Number(drift.value).toFixed(2); // FR-8: re-samples on change
   });
-  driftLabel.append(drift, driftReadout);
+  const driftHint = document.createElement('span');
+  driftHint.className = 'bs-drift-hint';
+  driftHint.textContent = '0 = the machine\u2019s edge · 1 = the crowd\u2019s centre';
+  driftLabel.append(drift, driftReadout, driftHint);
   form.appendChild(driftLabel);
 
   const seedLabel = document.createElement('label');
@@ -117,6 +126,13 @@ export async function mountApp(root: HTMLElement): Promise<AppHandle> {
   root.appendChild(form);
 
   // ── Render viewport + distribution ─────────────────────────────────────────
+  // Label the OUTPUT plainly: the form is the machine's reading, not the
+  // visitor's drawing (input = the sentence; output = the machine's reading).
+  const readingLabel = document.createElement('p');
+  readingLabel.className = 'bs-reading-label';
+  readingLabel.textContent = 'the machine\u2019s reading of your sentence:';
+  readingLabel.hidden = true;
+  root.appendChild(readingLabel);
   const viewport = document.createElement('div');
   viewport.className = 'bs-viewport';
   root.appendChild(viewport);
@@ -293,6 +309,7 @@ export async function mountApp(root: HTMLElement): Promise<AppHandle> {
       line(`this run's hash: ${fp.slice(0, 16)}… (same words, same knob, same seed — same form)`);
       // The crowd's hand (FR-16): judge the reading that just arrived.
       currentRun = run;
+      readingLabel.hidden = false;
       coCreation.reset();
       coCreation.show();
     } catch (err) {

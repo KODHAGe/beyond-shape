@@ -29,6 +29,8 @@ function el(tag: string, className: string, text?: string): HTMLElement {
 export function createCoCreation(mount: HTMLElement, cb: CoCreationCallbacks): CoCreationHandle {
   mount.className = 'bs-cocreation';
 
+  // The loop's junction: the visitor's judgment is the living part (C1/C2).
+  const heading = el('p', 'bs-cocreation-heading', 'your hand — does this reading land?');
   const judgeRow = el('div', 'bs-cocreation-judge');
   const keepBtn = el('button', 'bs-cocreation-btn', 'keep this form') as HTMLButtonElement;
   const againBtn = el('button', 'bs-cocreation-btn', 'try another') as HTMLButtonElement;
@@ -37,7 +39,10 @@ export function createCoCreation(mount: HTMLElement, cb: CoCreationCallbacks): C
   judgeRow.append(keepBtn, againBtn, rejectBtn);
 
   // The consent area appears only once a terminal judge (keep / not this one)
-  // is chosen — one plain-language opt-in, never a consent wall (Concept).
+  // is chosen — one plain-language opt-in (DR-2). Framed as a TEACHING gift
+  // (C6 — a sign-aggregator learns from the crowd), not a consent wall, and
+  // explicit that the forms are a convention, never a description (Concept
+  // amendment: clarify the mechanism, never the meaning).
   const consentWrap = el('div', 'bs-cocreation-consent');
   consentWrap.hidden = true;
   const consentLabel = el('label', 'bs-cocreation-consent-label');
@@ -46,16 +51,17 @@ export function createCoCreation(mount: HTMLElement, cb: CoCreationCallbacks): C
   consentLabel.append(
     consentBox,
     document.createTextNode(
-      ' this is a collective artwork — your sentence and the form it made can ' +
-        'join the crowd, published openly under CC BY-SA. nothing is sent unless ' +
-        'you opt in (anonymous; no account).',
+      ' this is how the machine learns: give a reading and it joins the crowd. ' +
+        'the forms are the machine\u2019s way of reading, not a description of your words. ' +
+        'the crowd is still forming — you could be among the first it learns from. ' +
+        'CC BY-SA · anonymous · nothing is sent unless you opt in.',
     ),
   );
   consentWrap.append(consentLabel);
 
   const shareRow = el('div', 'bs-cocreation-share');
   shareRow.hidden = true;
-  const shareBtn = el('button', 'bs-cocreation-share-btn', 'share to the crowd') as HTMLButtonElement;
+  const shareBtn = el('button', 'bs-cocreation-share-btn', 'give this reading to the crowd') as HTMLButtonElement;
   shareBtn.type = 'button';
   shareBtn.disabled = true;
   const shareNote = el('span', 'bs-cocreation-share-note');
@@ -65,7 +71,7 @@ export function createCoCreation(mount: HTMLElement, cb: CoCreationCallbacks): C
   const result = el('p', 'bs-cocreation-result');
   result.hidden = true;
 
-  mount.append(judgeRow, consentWrap, result);
+  mount.append(heading, judgeRow, consentWrap, result);
 
   let gradient: 'accept' | 'reject' | null = null;
 
