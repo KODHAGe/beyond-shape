@@ -182,7 +182,23 @@ export async function mountApp(root: HTMLElement): Promise<AppHandle> {
 
   const store = new RunStore();
   const marginalia = createMarginaliaPanel(marginaliaMount);
-  const alternates = createAlternatesStrip(alternatesMount);
+  const alternates = createAlternatesStrip(alternatesMount, {
+    onSelect(cell) {
+      if (!cell.sdf || !currentRun) return;
+      seed.value = String(cell.seed);
+      currentRun = {
+        ...currentRun,
+        seed: cell.seed,
+        sdfParams: cell.sdf,
+        renderState: computeRenderState(cell.seed, cell.sdf),
+      };
+      renderer.showSdf(cell.sdf, cell.seed);
+      currentTunedSdf = null;
+      currentTuneState = DEFAULT_TUNE;
+      tune.reset();
+      line(`reading seed ${cell.seed} — explore or make it yours`);
+    },
+  });
   const coCreation = createCoCreation(coCreationMount, {
     // Adjust: a new sample — the visitor's hand re-periods the shape (FR-16).
     onAdjust() {

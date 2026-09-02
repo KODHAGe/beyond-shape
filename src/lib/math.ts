@@ -11,6 +11,22 @@ export function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
 }
 
+/** Shortest-arc circular hue interpolation on [0, 1). */
+export function lerpHue(h1: number, h2: number, t: number): number {
+  const a = wrap01(h1);
+  const b = wrap01(h2);
+  let d = b - a;
+  if (d > 0.5) d -= 1;
+  else if (d < -0.5) d += 1;
+  return wrap01(a + d * t);
+}
+
+/** Standard cubic ease-out curve for natural deceleration. */
+export function easeOutCubic(t: number): number {
+  const inv = 1 - clamp(t, 0, 1);
+  return 1 - inv * inv * inv;
+}
+
 /** Softmax over a number array (used for the 8 blend weights). */
 export function softmax(values: readonly number[]): number[] {
   const max = values.reduce((m, v) => (v > m ? v : m), -Infinity);

@@ -11,8 +11,10 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { RenderStateWire, RunRecord, SdfParams } from '../types';
 import { SeededRng } from '../core/seededRng';
 import type { BlendMode } from '../core/sdfField';
+import { interpolateSdfParams } from '../core/sdfParams';
+import { clamp, easeOutCubic, lerp } from '../lib/math';
 import { getSolidMesh, THREE_QUARTER_YAW_OFFSET } from './projection';
-import { buildLighting, gradientBackground, paletteFromSdf } from './lighting';
+import { buildLighting, createGradientBackground, paletteFromSdf } from './lighting';
 import { attachTurnHint } from './input';
 
 const CAMERA_FOV = 45;
@@ -90,7 +92,12 @@ export interface SceneHandle {
   camera: THREE.PerspectiveCamera;
   controls: OrbitControls;
   wireState: RenderStateWire;
-  setSdf(sdf: SdfParams): void;
+  setSdf(sdf: SdfParams, opts?: { immediateCamera?: boolean; blend?: BlendMode }): void;
+  transitionTo(
+    nextSdf: SdfParams,
+    nextSeed?: number,
+    opts?: { duration?: number; immediate?: boolean; blend?: BlendMode },
+  ): Promise<void>;
   resize(width: number, height: number): void;
   render(): void;
   dispose(): void;
@@ -105,7 +112,7 @@ export function createScene(container: HTMLElement, seed: number, sdf: SdfParams
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   container.appendChild(renderer.domElement);
-  const blend = opts?.blend ?? sdf.blendMode ?? 'soft';
+  const defaultBlend = opts?.blend ?? sdf.blendMode ?? 'soft';
   const perPartColor = opts?.perPartColor ?? true;
 
   const scene = new THREE.Scene();
@@ -126,10 +133,14 @@ export function createScene(container: HTMLElement, seed: number, sdf: SdfParams
   const lightingRng = new SeededRng(seedBytes(seed ^ 0x5f3759df));
   const lighting = buildLighting(scene, renderer, lightingRng);
   const palette = paletteFromSdf(sdf.material.hue, sdf.material.saturation, sdf.material.lightness);
-  gradientBackground(scene, palette.backgroundStops);
+  const bgHandle = createGradientBackground(scene, palette.backgroundStops);
 
   let mesh: THREE.Mesh | null = null;
   let geometry: THREE.BufferGeometry | null = null;
+  let currentSdf: SdfParams = sdf;
+  let currentSeed: number = seed;
+  let transitionRaf = 0;
+  let transitionResolve: (() => void) | null = null;
 
   function renderScene(): void {
     // Render ONLY — not controls.update(). OrbitControls settles the camera
@@ -144,9 +155,9 @@ export function createScene(container: HTMLElement, seed: number, sdf: SdfParams
    * Frame the object, not a guess: keep the seeded azimuth/elevation (FR-10
    * determinism for the reading) but pull the distance out to the mesh's
    * bounding sphere, and target its centre — so any decoded form, however
-   * large or lopsided, sits centred and in shot.
+   * large or lopsided, sits centred and in shot. Supports smooth glide.
    */
-  function fitCameraToMesh(): void {
+  function fitCameraToMesh(lerpFactor = 1.0): void {
     if (!geometry) return;
     geometry.computeBoundingSphere();
     const sphere = geometry.boundingSphere;
@@ -155,17 +166,35 @@ export function createScene(container: HTMLElement, seed: number, sdf: SdfParams
     if (dir.lengthSq() < 1e-9) dir.set(0, 1, 0);
     dir.normalize();
     // FOV-correct fit: the bounding sphere's projected radius must fit within
-    // the view frustum, with a little margin (old `radius * 2.85` was a
-    // constant heuristic that clipped very large / drift-separated forms).
-    const fit = sphere.radius / Math.tan((CAMERA_FOV * Math.PI) / 360) * 1.12;
+    // the view frustum, with a little margin.
+    const fit = (sphere.radius / Math.tan((CAMERA_FOV * Math.PI) / 360)) * 1.12;
     const distance = Math.max(2.6, fit);
     const centre = sphere.center;
-    controls.target.copy(centre);
-    camera.position.copy(centre).addScaledVector(dir, distance);
+
+    if (lerpFactor >= 1.0) {
+      controls.target.copy(centre);
+      camera.position.copy(centre).addScaledVector(dir, distance);
+    } else {
+      controls.target.lerp(centre, lerpFactor);
+      const curDist = camera.position.distanceTo(controls.target);
+      const newDist = lerp(curDist, distance, lerpFactor);
+      camera.position.copy(controls.target).addScaledVector(dir, newDist);
+    }
     controls.minDistance = Math.max(1.2, distance * 0.5);
     controls.maxDistance = distance * 4;
-    camera.lookAt(centre);
+    camera.lookAt(controls.target);
     controls.update();
+  }
+
+  function cancelTransition(): void {
+    if (transitionRaf !== 0) {
+      cancelAnimationFrame(transitionRaf);
+      transitionRaf = 0;
+    }
+    if (transitionResolve) {
+      transitionResolve();
+      transitionResolve = null;
+    }
   }
 
   const handle: SceneHandle = {
@@ -182,16 +211,16 @@ export function createScene(container: HTMLElement, seed: number, sdf: SdfParams
         rim: palette.rim,
       },
     },
-    setSdf(next: SdfParams) {
+    setSdf(next: SdfParams, setOpts?: { immediateCamera?: boolean; blend?: BlendMode }) {
+      currentSdf = next;
+      const effectiveBlend = setOpts?.blend ?? next.blendMode ?? defaultBlend;
+      const solid = getSolidMesh(next, effectiveBlend);
       if (mesh) {
         scene.remove(mesh);
         mesh.geometry.dispose();
         (mesh.material as THREE.Material).dispose();
         mesh = null;
       }
-      // Shared builder (same mesh both tiers): positions + per-part vertex
-      // colours, in the requested blend mode (soft morph / hard cut).
-      const solid = getSolidMesh(next, blend);
       geometry = new THREE.BufferGeometry();
       geometry.setAttribute('position', new THREE.BufferAttribute(solid.positions, 3));
       geometry.setIndex(new THREE.BufferAttribute(solid.indices, 1));
@@ -203,7 +232,58 @@ export function createScene(container: HTMLElement, seed: number, sdf: SdfParams
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       scene.add(mesh);
-      fitCameraToMesh();
+
+      const nextPalette = paletteFromSdf(next.material.hue, next.material.saturation, next.material.lightness);
+      bgHandle.update(nextPalette.backgroundStops);
+      handle.wireState = computeRenderState(currentSeed, next);
+
+      fitCameraToMesh(setOpts?.immediateCamera ? 1.0 : 0.3);
+      renderScene();
+    },
+    transitionTo(
+      targetSdf: SdfParams,
+      targetSeed?: number,
+      transOpts?: { duration?: number; immediate?: boolean; blend?: BlendMode },
+    ): Promise<void> {
+      cancelTransition();
+      if (transOpts?.immediate || transOpts?.duration === 0) {
+        if (targetSeed !== undefined) currentSeed = targetSeed;
+        handle.setSdf(targetSdf, { immediateCamera: true, blend: transOpts?.blend });
+        return Promise.resolve();
+      }
+
+      const duration = transOpts?.duration ?? 400;
+      const startSdf = currentSdf;
+      if (targetSeed !== undefined) currentSeed = targetSeed;
+      const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+
+      return new Promise<void>((resolve) => {
+        transitionResolve = resolve;
+        function step(now: number): void {
+          const elapsed = now - startTime;
+          const rawT = clamp(elapsed / duration, 0, 1);
+          const easedT = easeOutCubic(rawT);
+          const intermediate = interpolateSdfParams(startSdf, targetSdf, easedT);
+
+          handle.setSdf(intermediate, {
+            immediateCamera: false,
+            blend: transOpts?.blend,
+          });
+
+          if (rawT < 1) {
+            transitionRaf = requestAnimationFrame(step);
+          } else {
+            transitionRaf = 0;
+            handle.setSdf(targetSdf, {
+              immediateCamera: false,
+              blend: transOpts?.blend,
+            });
+            transitionResolve = null;
+            resolve();
+          }
+        }
+        transitionRaf = requestAnimationFrame(step);
+      });
     },
     resize(width: number, height: number) {
       camera.aspect = width / Math.max(height, 1);
@@ -216,9 +296,11 @@ export function createScene(container: HTMLElement, seed: number, sdf: SdfParams
       renderScene();
     },
     dispose() {
+      cancelTransition();
       controls.dispose();
       turnHint.dispose();
       renderer.dispose();
+      bgHandle.dispose();
       if (mesh) {
         scene.remove(mesh);
         mesh.geometry.dispose();
@@ -233,7 +315,7 @@ export function createScene(container: HTMLElement, seed: number, sdf: SdfParams
   // auto-rotation off; the change event carries the interaction instead).
   controls.addEventListener('change', renderScene);
 
-  handle.setSdf(sdf);
+  handle.setSdf(sdf, { immediateCamera: true });
   return handle;
 }
 
@@ -247,26 +329,31 @@ export interface WebglRendererSurface {
   dispose(): void;
 }
 
-/** One scene per reading — rebuilt when the seed/sdf changes (deterministic). */
+/** One scene per reading — smoothly morphed when the seed/sdf changes. */
 export function createWebglRenderer(container: HTMLElement): WebglRendererSurface {
   let handle: SceneHandle | null = null;
   let lastWidth = 640;
   let lastHeight = 480;
 
-  function build(seed: number, sdf: SdfParams): void {
-    handle?.dispose();
-    handle = createScene(container, seed, sdf);
-    handle.resize(lastWidth, lastHeight);
-    handle.render();
-  }
-
   return {
     kind: 'webgl',
     show(run: RunRecord) {
-      build(run.seed, run.sdfParams);
+      if (!handle) {
+        handle = createScene(container, run.seed, run.sdfParams);
+        handle.resize(lastWidth, lastHeight);
+        handle.render();
+      } else {
+        void handle.transitionTo(run.sdfParams, run.seed);
+      }
     },
     showSdf(sdf: SdfParams, seed: number) {
-      build(seed, sdf);
+      if (!handle) {
+        handle = createScene(container, seed, sdf);
+        handle.resize(lastWidth, lastHeight);
+        handle.render();
+      } else {
+        void handle.transitionTo(sdf, seed);
+      }
     },
     resize(width: number, height: number) {
       lastWidth = width;

@@ -104,4 +104,9 @@ test('alternates cells render painted forms in the canvas tier (FR-9, round-trip
       })
       .toBe(true);
   }
+
+  // Clicking an alternate switches the active form to that alternate reading (seed 43)
+  await cells.nth(0).click();
+  await expect(page.locator('#bs-seed')).toHaveValue('43');
+  await expect(page.locator('.bs-status')).toContainText('reading seed 43');
 });

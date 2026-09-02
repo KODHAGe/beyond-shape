@@ -26,12 +26,16 @@ export interface AlternateCell {
   sdf: SdfParams | null;
 }
 
+export interface AlternatesOptions {
+  onSelect?: (cell: AlternateCell) => void;
+}
+
 export interface AlternatesHandle {
   render(cells: AlternateCell[], kind: RenderKind): void;
   clear(): void;
 }
 
-export function createAlternatesStrip(mount: HTMLElement): AlternatesHandle {
+export function createAlternatesStrip(mount: HTMLElement, opts?: AlternatesOptions): AlternatesHandle {
   mount.className = 'bs-alternates';
   const title = document.createElement('h3');
   // FR-9: the alternates are OTHER READINGS of the SAME sentence (same words, a
@@ -141,6 +145,21 @@ export function createAlternatesStrip(mount: HTMLElement): AlternatesHandle {
         const wrapper = document.createElement('div');
         wrapper.className = 'bs-alternate-cell';
         wrapper.dataset['seed'] = String(cell.seed);
+        if (cell.sdf && opts?.onSelect) {
+          wrapper.setAttribute('role', 'button');
+          wrapper.setAttribute('tabindex', '0');
+          wrapper.setAttribute('aria-label', `alternate reading seed ${cell.seed}`);
+          const select = (): void => {
+            if (cell.sdf && opts?.onSelect) opts.onSelect(cell);
+          };
+          wrapper.addEventListener('click', select);
+          wrapper.addEventListener('keydown', (ev) => {
+            if (ev.key === 'Enter' || ev.key === ' ') {
+              ev.preventDefault();
+              select();
+            }
+          });
+        }
         if (cell.sdf && kind === 'webgl') {
           webglCell(wrapper, cell);
         } else if (cell.sdf) {

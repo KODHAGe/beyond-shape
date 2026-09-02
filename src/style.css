@@ -198,6 +198,18 @@ canvas.bs-dragging {
   background: #fff9ef;
   border: 1px solid #f0dfea;
   overflow: hidden;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.bs-alternate-cell:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(80, 40, 60, 0.08);
+  border-color: #d8bed2;
+}
+
+.bs-alternate-cell:active {
+  transform: translateY(0);
 }
 
 .bs-alternate-cell canvas {

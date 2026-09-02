@@ -11,6 +11,8 @@
  */
 
 import type { RunRecord, SdfParams } from '../types';
+import { interpolateSdfParams } from '../core/sdfParams';
+import { clamp, easeOutCubic } from '../lib/math';
 import {
   attachOrbit,
   attachTurnHint,
@@ -97,6 +99,7 @@ function createCanvas2dRenderer(container: HTMLElement): AppRenderer {
   let sdf: SdfParams | null = null;
   let view: ViewAngles = { yaw: 0, pitch: 0 };
   let frame = 0;
+  let transitionRaf = 0;
 
   async function ensureProj(): Promise<ProjectionModule> {
     if (proj) return proj;
@@ -121,16 +124,50 @@ function createCanvas2dRenderer(container: HTMLElement): AppRenderer {
     });
   }
 
+  function cancelTransition(): void {
+    if (transitionRaf !== 0) {
+      cancelAnimationFrame(transitionRaf);
+      transitionRaf = 0;
+    }
+  }
+
   async function draw(next: SdfParams, drawSeed: number): Promise<void> {
     const p = await ensureProj();
-    sdf = next;
-    const mesh = p.getSolidMesh(next);
-    if (mesh.indices.length === 0) {
-      sdf = null;
+    if (!sdf) {
+      sdf = next;
+      const mesh = p.getSolidMesh(next);
+      if (mesh.indices.length === 0) {
+        sdf = null;
+        return;
+      }
+      view = p.initialView(drawSeed, next);
+      paint();
       return;
     }
-    view = p.initialView(drawSeed, next);
-    paint();
+
+    cancelTransition();
+    const startSdf = sdf;
+    const targetSdf = next;
+    const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const duration = 400;
+
+    function step(now: number): void {
+      const elapsed = now - startTime;
+      const rawT = clamp(elapsed / duration, 0, 1);
+      const easedT = easeOutCubic(rawT);
+      sdf = interpolateSdfParams(startSdf, targetSdf, easedT);
+      paint();
+
+      if (rawT < 1) {
+        transitionRaf = requestAnimationFrame(step);
+      } else {
+        transitionRaf = 0;
+        sdf = targetSdf;
+        paint();
+      }
+    }
+
+    transitionRaf = requestAnimationFrame(step);
   }
 
   // Orbit input (shared grammar with the WebGL tier — input.ts).
@@ -155,6 +192,7 @@ function createCanvas2dRenderer(container: HTMLElement): AppRenderer {
       if (sdf) paintSoon();
     },
     dispose() {
+      cancelTransition();
       if (frame !== 0) cancelAnimationFrame(frame);
       orbit.dispose();
       hint.dispose();

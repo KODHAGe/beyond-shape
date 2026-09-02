@@ -152,23 +152,46 @@ export function buildLighting(
   };
 }
 
+export interface BackgroundHandle {
+  update(stops: readonly [string, string]): void;
+  dispose(): void;
+}
+
 /**
- * Gradient pastel background via CanvasTexture (register stays colour-light:
+ * Gradient pastel background via reusable CanvasTexture (register stays colour-light:
  * a field, not a filter — the reading's hue tints the gradient).
  */
-export function gradientBackground(scene: THREE.Scene, stops: readonly [string, string]): void {
+export function createGradientBackground(scene: THREE.Scene, stops: readonly [string, string]): BackgroundHandle {
   const canvas = document.createElement('canvas');
   canvas.width = 64;
   canvas.height = 64;
   const ctx = canvas.getContext('2d');
-  if (ctx) {
+  function paint(s: readonly [string, string]): void {
+    if (!ctx) return;
     const grad = ctx.createLinearGradient(0, 0, 0, 64);
-    grad.addColorStop(0, stops[0]);
-    grad.addColorStop(1, stops[1]);
+    grad.addColorStop(0, s[0]);
+    grad.addColorStop(1, s[1]);
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, 64, 64);
   }
+  paint(stops);
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   scene.background = tex;
+
+  return {
+    update(nextStops: readonly [string, string]) {
+      paint(nextStops);
+      tex.needsUpdate = true;
+    },
+    dispose() {
+      if (scene.background === tex) scene.background = null;
+      tex.dispose();
+    },
+  };
+}
+
+/** Legacy one-shot helper for gradient background. */
+export function gradientBackground(scene: THREE.Scene, stops: readonly [string, string]): void {
+  createGradientBackground(scene, stops);
 }

@@ -24,7 +24,7 @@ import { ModelMissingError } from '../types';
 import type { BlendMode } from './sdfField';
 import { LazySession, requireModelFile } from './models';
 import { ortSessionOptions } from './ortSession';
-import { clamp, softBias, softmax, wrap01, wrapTwoPi } from '../lib/math';
+import { clamp, lerp, lerpHue, softBias, softmax, wrap01, wrapTwoPi } from '../lib/math';
 import * as ort from 'onnxruntime-web/wasm';
 
 export const PRIMITIVE_COUNT = 8;
@@ -119,6 +119,91 @@ export function decodeRawToSdfParams(raw: DecoderRaw): SdfParams {
       pitch: clamp(raw.pose[1] ?? 0, -Math.PI / 2, Math.PI / 2),
       roll: wrapTwoPi(raw.pose[2] ?? 0),
     },
+  };
+}
+
+/**
+ * Pure continuous parameter-space interpolation between two SdfParams.
+ * Smoothly lerps weights (normalized), blendRadius, per-part geometry,
+ * material properties (with shortest-arc hue wrap), motion, and pose.
+ */
+export function interpolateSdfParams(a: SdfParams, b: SdfParams, t: number): SdfParams {
+  const clampedT = clamp(t, 0, 1);
+  if (clampedT <= 0) return a;
+  if (clampedT >= 1) return b;
+
+  const weights = new Array<number>(PRIMITIVE_COUNT);
+  let weightSum = 0;
+  for (let i = 0; i < PRIMITIVE_COUNT; i += 1) {
+    const w = lerp(a.weights[i] ?? 0, b.weights[i] ?? 0, clampedT);
+    weights[i] = Math.max(0, w);
+    weightSum += weights[i]!;
+  }
+  if (weightSum > 0) {
+    for (let i = 0; i < PRIMITIVE_COUNT; i += 1) {
+      weights[i] = weights[i]! / weightSum;
+    }
+  }
+
+  const blendRadius = clamp(
+    lerp(a.blendRadius, b.blendRadius, clampedT),
+    BLEND_RADIUS_RANGE[0],
+    BLEND_RADIUS_RANGE[1],
+  );
+
+  const blendMode = clampedT < 0.5 ? a.blendMode : b.blendMode;
+
+  const parts: SdfParams['parts'] = [];
+  for (let i = 0; i < PRIMITIVE_COUNT; i += 1) {
+    const pa = a.parts[i] ?? { scale: [1, 1, 1], offset: [0, 0, 0], twist: 0, displacement: 0 };
+    const pb = b.parts[i] ?? { scale: [1, 1, 1], offset: [0, 0, 0], twist: 0, displacement: 0 };
+    parts.push({
+      scale: [
+        clamp(lerp(pa.scale[0], pb.scale[0], clampedT), 0.05, 3),
+        clamp(lerp(pa.scale[1], pb.scale[1], clampedT), 0.05, 3),
+        clamp(lerp(pa.scale[2], pb.scale[2], clampedT), 0.05, 3),
+      ],
+      offset: [
+        clamp(lerp(pa.offset[0], pb.offset[0], clampedT), -1.5, 1.5),
+        clamp(lerp(pa.offset[1], pb.offset[1], clampedT), -1.5, 1.5),
+        clamp(lerp(pa.offset[2], pb.offset[2], clampedT), -1.5, 1.5),
+      ],
+      twist: clamp(lerp(pa.twist, pb.twist, clampedT), -Math.PI, Math.PI),
+      displacement: clamp(lerp(pa.displacement, pb.displacement, clampedT), 0, 0.5),
+    });
+  }
+
+  const ma = a.material;
+  const mb = b.material;
+  const material = {
+    hue: lerpHue(ma.hue, mb.hue, clampedT),
+    saturation: clamp(lerp(ma.saturation, mb.saturation, clampedT), 0, 1),
+    lightness: clamp(lerp(ma.lightness, mb.lightness, clampedT), 0, 1),
+    roughness: clamp(lerp(ma.roughness, mb.roughness, clampedT), 0.02, 1),
+    metalness: clamp(lerp(ma.metalness, mb.metalness, clampedT), 0, 1),
+    clearcoat: clamp(lerp(ma.clearcoat, mb.clearcoat, clampedT), 0, 1),
+    emissive: clamp(lerp(ma.emissive, mb.emissive, clampedT), 0, 1),
+  };
+
+  const motion = {
+    breathe: clamp(lerp(a.motion?.breathe ?? 0, b.motion?.breathe ?? 0, clampedT), 0, 1),
+    sway: clamp(lerp(a.motion?.sway ?? 0, b.motion?.sway ?? 0, clampedT), 0, 1),
+  };
+
+  const pose = {
+    yaw: lerp(a.pose?.yaw ?? 0, b.pose?.yaw ?? 0, clampedT),
+    pitch: clamp(lerp(a.pose?.pitch ?? 0, b.pose?.pitch ?? 0, clampedT), -Math.PI / 2, Math.PI / 2),
+    roll: lerp(a.pose?.roll ?? 0, b.pose?.roll ?? 0, clampedT),
+  };
+
+  return {
+    weights,
+    blendRadius,
+    blendMode,
+    parts,
+    material,
+    motion,
+    pose,
   };
 }
 

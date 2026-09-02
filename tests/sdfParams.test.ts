@@ -2,12 +2,13 @@ import { describe, expect, it } from 'vitest';
 import {
   decodeRawToSdfParams,
   decodeBlendMode,
+  interpolateSdfParams,
   BLEND_HARDNESS_THRESHOLD,
   BLEND_RADIUS_RANGE,
   PRIMITIVE_COUNT,
   type DecoderRaw,
 } from '../src/core/sdfParams';
-import { softmax } from '../src/lib/math';
+import { easeOutCubic, lerpHue, softmax } from '../src/lib/math';
 
 function raw(overrides: Partial<DecoderRaw> = {}): DecoderRaw {
   return {
@@ -104,5 +105,64 @@ describe('blendMode decode (item-1 hardness head, 0.2.1)', () => {
   it('decodes the hardness output into SdfParams.blendMode', () => {
     expect(decodeRawToSdfParams(raw({ hardness: 1 })).blendMode).toBe('cut');
     expect(decodeRawToSdfParams(raw({ hardness: 0.2 })).blendMode).toBe('soft');
+  });
+});
+
+describe('interpolateSdfParams (continuous parameter morph)', () => {
+  const pA = decodeRawToSdfParams(raw({
+    weights: [1, 0, 0, 0, 0, 0, 0, 0],
+    blendRadius: 0.1,
+    material: [0.95, 0.3, 0.6, 0.4, 0, 0.1, 0],
+    motion: [0.2, 0.4],
+    pose: [0.1, 0.2, 0.3],
+    hardness: 0.2,
+  }));
+
+  const pB = decodeRawToSdfParams(raw({
+    weights: [0, 1, 0, 0, 0, 0, 0, 0],
+    blendRadius: 0.4,
+    material: [0.05, 0.7, 0.8, 0.8, 0.5, 0.9, 0.4],
+    motion: [0.8, 0.9],
+    pose: [0.5, 0.6, 0.7],
+    hardness: 0.8,
+  }));
+
+  it('returns exact endpoints at t=0 and t=1', () => {
+    expect(interpolateSdfParams(pA, pB, 0)).toBe(pA);
+    expect(interpolateSdfParams(pA, pB, 1)).toBe(pB);
+  });
+
+  it('smoothly blends parameters at midpoint t=0.5', () => {
+    const mid = interpolateSdfParams(pA, pB, 0.5);
+    expect(mid.blendRadius).toBeCloseTo(0.25, 4);
+    expect(mid.weights.reduce((s, v) => s + v, 0)).toBeCloseTo(1, 4);
+    expect(mid.material.roughness).toBeCloseTo(0.6, 4);
+    expect(mid.material.saturation).toBeCloseTo((pA.material.saturation + pB.material.saturation) / 2, 4);
+    expect(mid.motion.breathe).toBeCloseTo(0.5, 4);
+    expect(mid.motion.sway).toBeCloseTo(0.65, 4);
+    expect(mid.pose.yaw).toBeCloseTo(0.3, 4);
+  });
+
+  it('handles shortest-arc hue interpolation correctly around circle wrap', () => {
+    // 0.95 to 0.05 wraps across 0.0 — midpoint should be 0.0 (or 1.0)
+    expect(lerpHue(0.95, 0.05, 0.5)).toBeCloseTo(0.0, 4);
+    const mid = interpolateSdfParams(pA, pB, 0.5);
+    expect(mid.material.hue).toBeCloseTo(0.0, 4);
+
+    // 0.1 to 0.9 wraps across 0.0 with midpoint 0.0
+    expect(lerpHue(0.1, 0.9, 0.5)).toBeCloseTo(0.0, 4);
+    // 0.2 to 0.4 does not wrap with midpoint 0.3
+    expect(lerpHue(0.2, 0.4, 0.5)).toBeCloseTo(0.3, 4);
+  });
+
+  it('switches blendMode at t=0.5 threshold', () => {
+    expect(interpolateSdfParams(pA, pB, 0.49).blendMode).toBe('soft');
+    expect(interpolateSdfParams(pA, pB, 0.5).blendMode).toBe('cut');
+  });
+
+  it('evaluates cubic ease curve', () => {
+    expect(easeOutCubic(0)).toBe(0);
+    expect(easeOutCubic(1)).toBe(1);
+    expect(easeOutCubic(0.5)).toBeGreaterThan(0.5); // decelerating curve is > linear at 0.5
   });
 });
